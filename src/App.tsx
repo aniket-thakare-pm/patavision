@@ -587,7 +587,14 @@ Output strictly valid JSON with no markdown wrapping:
           <div className="flex items-center space-x-2">
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="text-xs font-bold tracking-tight text-white">PataVision</span>
-            <span className="text-[10px] text-neutral-500 font-mono">v1.3</span>
+            <a 
+              href="/demo.html" 
+              className="text-[10px] bg-neutral-800/90 hover:bg-neutral-700 text-emerald-300 hover:text-white px-2 py-0.5 rounded-full border border-emerald-500/30 font-medium flex items-center gap-1 transition shadow-sm"
+              title="Open Figma-style Demonstrative Showcase"
+            >
+              <span>Showcase</span>
+              <ArrowRight className="w-2.5 h-2.5" />
+            </a>
           </div>
 
           {/* Minimal Segment Switcher */}
