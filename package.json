@@ -16,6 +16,8 @@
     "vite": "^8.3.6"
   },
   "dependencies": {
+    "@lottiefiles/dotlottie-react": "^0.22.3",
+    "@supabase/supabase-js": "^2.119.2",
     "@tailwindcss/vite": "^4.3.5",
     "lucide-react": "^1.77.0",
     "react": "^19.3.1",

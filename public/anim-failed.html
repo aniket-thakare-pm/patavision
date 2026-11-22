@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PataVision — Scan Miss</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.6.2/dist/dotlottie-wc.js" type="module"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['IBM Plex Sans', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['IBM Plex Mono', 'ui-monospace', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+      color-scheme: dark;
+    }
+
+    @keyframes veil-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .anim-veil {
+      animation: veil-in 220ms var(--ease-out-expo) both;
+    }
+
+    @keyframes stagger-rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .anim-rise-1 { animation: stagger-rise 280ms var(--ease-out-expo) 260ms both; }
+    .anim-rise-2 { animation: stagger-rise 280ms var(--ease-out-expo) 340ms both; }
+    .anim-rise-3 { animation: stagger-rise 280ms var(--ease-out-expo) 420ms both; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation-duration: 150ms !important;
+        animation-delay: 0ms !important;
+      }
+    }
+  </style>
+</head>
+<body class="w-screen h-dvh bg-[#0f0f10] text-[#ededed] overflow-hidden antialiased select-none">
+
+  <div id="stage" onclick="replay(event)" class="w-full h-full flex flex-col items-center justify-center p-6 anim-veil cursor-pointer">
+    <div class="w-full max-w-sm h-full max-h-[760px] flex flex-col items-center justify-between py-2">
+
+      <!-- Top meta -->
+      <div class="w-full flex items-center justify-between anim-rise-1">
+        <span class="text-xs font-mono tabular-nums text-[#85858b]">Waypoint 1 of 3</span>
+        <span class="text-xs font-mono text-[#e5484d]">No match</span>
+      </div>
+
+      <!-- Centerpiece dotLottie Animation -->
+      <div class="flex items-center justify-center shrink-0">
+        <dotlottie-wc
+          id="failed-lottie"
+          src="/tomato-error.lottie"
+          background="transparent"
+          autoplay
+          style="width: 240px; height: 240px;"
+        ></dotlottie-wc>
+      </div>
+
+      <!-- Guided Recovery Card & Actions -->
+      <div class="w-full space-y-3">
+        <div class="text-center space-y-1 anim-rise-1">
+          <h2 class="text-lg font-medium text-[#ededed]">Landmark not matched</h2>
+          <p class="text-xs text-[#a1a1a6]">Only plain wall visible — pan slightly right toward Ganesh Temple</p>
+        </div>
+
+        <div class="p-3 rounded-[12px] bg-[#19191b] border border-[#ededed]/[0.08] flex items-center gap-3 anim-rise-2">
+          <div class="w-14 h-11 rounded-[8px] bg-[#232325] border border-[#ededed]/[0.1] shrink-0 overflow-hidden flex items-center justify-center">
+            <svg width="44" height="32" viewBox="0 0 44 32" fill="none" aria-hidden="true">
+              <rect width="44" height="32" fill="#1c1d21"/>
+              <path d="M12 28V16C12 11 16 8 22 8C28 8 32 11 32 16V28" stroke="#eab308" stroke-width="1.5"/>
+              <path d="M18 28V20H26V28" stroke="#ededed" stroke-opacity="0.5" stroke-width="1.2"/>
+            </svg>
+          </div>
+          <div class="min-w-0 flex-1">
+            <span class="text-xs text-[#85858b] block">Look for this landmark</span>
+            <span class="text-sm font-medium text-[#ededed] block truncate">Ganesh Temple</span>
+          </div>
+        </div>
+
+        <div class="space-y-2 anim-rise-3">
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" onclick="replayForce()" class="h-11 px-4 rounded-[10px] bg-[#ededed] hover:bg-white text-[#141415] text-xs font-medium transition-colors duration-150">
+              Try again
+            </button>
+            <button type="button" onclick="replayForce()" class="h-11 px-4 rounded-[10px] bg-[#232325] hover:bg-[#2c2c2f] border border-[#ededed]/[0.08] text-xs font-medium text-[#ededed] flex items-center justify-center gap-2 transition-colors duration-150">
+              <svg class="w-4 h-4 shrink-0 text-[#eab308]" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5L6 9H2v6h4l5 4V5z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+              <span>Play voice cue</span>
+            </button>
+          </div>
+          <button type="button" onclick="replayForce()" class="w-full h-8 text-xs text-[#85858b] hover:text-[#ededed] transition-colors duration-150">
+            Skip to next step →
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    function replayForce() {
+      const stage = document.getElementById('stage');
+      const clone = stage.cloneNode(true);
+      stage.parentElement.replaceChild(clone, stage);
+    }
+
+    function replay(e) {
+      if (e.target.closest('button')) return;
+      replayForce();
+    }
+  </script>
+</body>
+</html>

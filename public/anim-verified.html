@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PataVision — Verified Lock-On</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.6.2/dist/dotlottie-wc.js" type="module"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['IBM Plex Sans', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['IBM Plex Mono', 'ui-monospace', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+      color-scheme: dark;
+    }
+
+    @keyframes veil-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .anim-veil {
+      animation: veil-in 240ms var(--ease-out-expo) both;
+    }
+
+    @keyframes stagger-rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .anim-rise-1 { animation: stagger-rise 280ms var(--ease-out-expo) 260ms both; }
+    .anim-rise-2 { animation: stagger-rise 280ms var(--ease-out-expo) 340ms both; }
+    .anim-rise-3 { animation: stagger-rise 280ms var(--ease-out-expo) 420ms both; }
+    .anim-rise-4 { animation: stagger-rise 280ms var(--ease-out-expo) 500ms both; }
+
+    @keyframes auto-advance {
+      from { transform: scaleX(0); }
+      to { transform: scaleX(1); }
+    }
+    .anim-progress-fill {
+      transform-origin: left center;
+      animation: auto-advance 2000ms linear 580ms both;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation-duration: 150ms !important;
+        animation-delay: 0ms !important;
+      }
+    }
+  </style>
+</head>
+<body class="w-screen h-dvh bg-[#0f0f10] text-[#ededed] overflow-hidden antialiased select-none">
+
+  <div id="stage" onclick="replay(event)" class="w-full h-full flex flex-col items-center justify-center p-6 anim-veil cursor-pointer">
+    <div class="w-full max-w-sm h-full max-h-[760px] flex flex-col items-center justify-between py-2">
+
+      <!-- Top meta -->
+      <div class="w-full flex items-center justify-between anim-rise-1">
+        <span class="text-xs font-mono tabular-nums text-[#85858b]">Waypoint 1 of 3</span>
+        <span class="text-xs font-mono text-[#4cc38a]">Confidence · High</span>
+      </div>
+
+      <!-- Centerpiece dotLottie Animation -->
+      <div id="lottie-wrap" class="flex items-center justify-center shrink-0">
+        <dotlottie-wc
+          id="success-lottie"
+          src="/success-check.lottie"
+          background="transparent"
+          autoplay
+          style="width: 260px; height: 260px;"
+        ></dotlottie-wc>
+      </div>
+
+      <!-- Result Copy & Post-Success Actions -->
+      <div class="w-full space-y-3">
+        <div class="text-center space-y-1 anim-rise-1">
+          <h2 class="text-lg font-medium text-[#ededed]">Ganesh Temple verified</h2>
+          <p class="text-xs text-[#a1a1a6]">Matched temple arch on the right side of the road</p>
+        </div>
+
+        <div class="h-10 px-3 rounded-[10px] bg-[#19191b] border border-[#ededed]/[0.08] flex items-center justify-between anim-rise-2">
+          <div class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-[#eab308] shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14m-6-6 6 6-6 6"/></svg>
+            <span class="text-sm font-medium text-[#ededed]">Turn right into narrow gali</span>
+          </div>
+          <span class="text-xs font-mono tabular-nums text-[#eab308]">65 m</span>
+        </div>
+
+        <div class="space-y-1 anim-rise-3">
+          <div class="flex items-center justify-between text-xs font-mono text-[#85858b]">
+            <span>Advancing to Waypoint 2</span>
+            <span>2.0s</span>
+          </div>
+          <div class="h-1 w-full rounded-full bg-[#232325] overflow-hidden">
+            <div class="h-full w-full bg-[#4cc38a] anim-progress-fill"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 pt-1 anim-rise-4">
+          <button type="button" onclick="replayForce()" class="h-11 px-4 rounded-[10px] bg-[#232325] hover:bg-[#2c2c2f] border border-[#ededed]/[0.08] text-xs font-medium text-[#ededed] transition-colors duration-150">
+            Stay on HUD
+          </button>
+          <button type="button" onclick="replayForce()" class="h-11 px-4 rounded-[10px] bg-[#ededed] hover:bg-white text-[#141415] text-xs font-medium transition-colors duration-150">
+            Next step now
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    function replayForce() {
+      const stage = document.getElementById('stage');
+      const clone = stage.cloneNode(true);
+      stage.parentElement.replaceChild(clone, stage);
+    }
+
+    function replay(e) {
+      if (e.target.closest('button')) return;
+      replayForce();
+    }
+  </script>
+</body>
+</html>

@@ -1,20 +1,107 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
 @layer base {
   body {
     margin: 0;
     padding: 0;
     overflow-x: hidden;
+    font-family: var(--font-sans);
+    color-scheme: dark;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(237, 237, 237, 0.14) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: rgba(237, 237, 237, 0.14);
+    border-radius: 9999px;
   }
 }
 
-/* Custom pulsing radar ring */
-@keyframes pulse-ring {
-  0% { transform: scale(0.95); opacity: 0.8; }
-  50% { transform: scale(1.15); opacity: 0.3; }
-  100% { transform: scale(0.95); opacity: 0.8; }
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.animate-radar {
-  animation: pulse-ring 2s infinite ease-in-out;
+.animate-fade-rise {
+  animation: fade-rise 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes check-draw {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-check-draw {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: check-draw 320ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes morph-fade {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-morph-fade {
+  animation: morph-fade 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes overlay-veil-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-overlay-veil {
+  animation: overlay-veil-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes auto-advance-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.animate-auto-advance {
+  transform-origin: left center;
+  animation: auto-advance-bar 1100ms linear 250ms both;
 }

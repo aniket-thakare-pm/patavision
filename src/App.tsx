@@ -1,250 +1,236 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Camera, 
-  Volume2, 
-  Navigation, 
-  MapPin, 
-  Key, 
-  Check, 
-  Copy, 
-  Settings, 
-  ArrowRight, 
-  ArrowLeft,
-  ArrowUp,
-  Layers, 
-  Play, 
-  Edit3, 
-  Plus, 
-  Trash2, 
-  Share2, 
-  RotateCcw,
-  Sparkles,
-  Zap,
-  HelpCircle,
-  Eye,
-  ShieldCheck,
-  Building,
-  Home,
-  Crosshair,
-  RefreshCw
-} from 'lucide-react';
+import { ArrowRight, HelpCircle, Settings, X } from 'lucide-react';
+import {
+  PRESET_CAPSULES,
+  type Waypoint,
+  type AddressCapsule,
+  hashPhone,
+  formatShortHash,
+  normalizeHandle,
+  stripHandlePrefix,
+  listDirectory,
+  isCloudEnabled,
+  saveToDirectoryAsync,
+  lookupByHandleAsync,
+  lookupByPhoneAsync,
+  encodeCapsuleForHash
+} from './lib/addressStore';
+import {
+  type ExtractedFrame,
+  extractKeyFramesFromVideo,
+  resizePhotoToFrame,
+  extractWaypointsFromFrames,
+  analyzeSinglePhoto
+} from './lib/routeExtractor';
+import { FOCUS_RING } from './components/shared';
+import { DriverHud, type DetectedBoundingBox } from './components/DriverHud';
+import { AddressTab } from './components/AddressTab';
+import {
+  VerificationOverlay,
+  type VerificationOverlayState
+} from './components/VerificationOverlay';
+import { SettingsModal } from './components/SettingsModal';
 
-export interface Waypoint {
-  id: number;
-  title: string;
-  cue: string;
-  distance: string;
-  targetObject: string;
-  turnDirection: 'straight' | 'right' | 'left';
-  screenPosition: { top: string; left: string };
-}
+export type { Waypoint, AddressCapsule, DetectedBoundingBox };
+export { PRESET_CAPSULES };
 
-export interface AddressCapsule {
-  addressTitle: string;
-  macroAnchor: string;
-  pataHandle: string;
-  voiceNoteHindi: string;
-  waypoints: Waypoint[];
-}
-
-export interface DetectedBoundingBox {
-  ymin: number;
-  xmin: number;
-  ymax: number;
-  xmax: number;
-  label: string;
-  confidence: string;
-}
-
-// Embedded Default Key (Masked in UI, instantly functional for judges & users)
-const EMBEDDED_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || (typeof atob !== 'undefined' ? atob('QVEuQWI4Uk42SUI4WmxXd3plMkduWl81Z3g3bDNhekVSRkhOeVA4c3dOWmhseEdtaGVnNEE=') : '');
-
-export const PRESET_CAPSULES: Record<string, AddressCapsule> = {
-  gali: {
-    addressTitle: 'Flat 302, Green Heights, Gali 3',
-    macroAnchor: 'Ganesh Temple Chowk (80ft Road)',
-    pataHandle: 'pata.link/blr-302',
-    voiceNoteHindi: 'मंदिर से सीधे 10 फीट की संकरी गली में जाएं। पीला खंभा पार करके दूसरा हरा गेट फ्लैट 302 है।',
-    waypoints: [
-      {
-        id: 1,
-        title: 'Ganesh Temple',
-        cue: 'Take the narrow 10ft gali directly to the right.',
-        distance: '65m',
-        targetObject: 'temple or shrine or religious arch',
-        turnDirection: 'right',
-        screenPosition: { top: '35%', left: '55%' }
-      },
-      {
-        id: 2,
-        title: 'Yellow Transformer',
-        cue: 'Walk straight 40m. Keep transformer on your left.',
-        distance: '25m',
-        targetObject: 'yellow electrical transformer or metal utility box or pole',
-        turnDirection: 'straight',
-        screenPosition: { top: '40%', left: '30%' }
-      },
-      {
-        id: 3,
-        title: 'Green Gate (Door 302)',
-        cue: 'Second house on the right. Doorbell on left pillar.',
-        distance: 'Doorstep',
-        targetObject: 'green iron gate or house entrance door',
-        turnDirection: 'right',
-        screenPosition: { top: '38%', left: '60%' }
-      }
-    ]
-  },
-  hostel: {
-    addressTitle: 'Room 214, Patel Hall of Residence',
-    macroAnchor: 'Main Campus Security Gate #2',
-    pataHandle: 'pata.link/patel-214',
-    voiceNoteHindi: 'मेन गेट से अंदर आकर बास्केटबॉल कोर्ट की तरफ जाएं। नॉर्थ विंग की सीढ़ियां चढ़कर रूम 214 पहुंचे।',
-    waypoints: [
-      {
-        id: 1,
-        title: 'Security Gate #2',
-        cue: 'Enter campus and head straight past the security guard post.',
-        distance: '90m',
-        targetObject: 'security gate or barrier or guard cabin',
-        turnDirection: 'straight',
-        screenPosition: { top: '36%', left: '50%' }
-      },
-      {
-        id: 2,
-        title: 'North Wing Staircase',
-        cue: 'Turn left after sports court and take the staircase.',
-        distance: '30m',
-        targetObject: 'staircase or building steps or entrance lobby',
-        turnDirection: 'left',
-        screenPosition: { top: '40%', left: '35%' }
-      },
-      {
-        id: 3,
-        title: 'Room 214 Door',
-        cue: 'Second door on the right along the 2nd floor corridor.',
-        distance: 'Doorstep',
-        targetObject: 'wooden door or room number door sign',
-        turnDirection: 'right',
-        screenPosition: { top: '38%', left: '55%' }
-      }
-    ]
-  },
-  office: {
-    addressTitle: 'Desk 4B, 3rd Floor, EcoSpace Tech Park',
-    macroAnchor: 'Tower 3 Drop-off Porch',
-    pataHandle: 'pata.link/ecospace-4b',
-    voiceNoteHindi: 'टॉवर 3 पोर्च से मुख्य लॉबी में प्रवेश करें। टर्नस्टाइल 2 पार करके लिफ्ट से तीसरी मंजिल जाएं।',
-    waypoints: [
-      {
-        id: 1,
-        title: 'Tower 3 Glass Lobby',
-        cue: 'Walk through glass doors into the main atrium.',
-        distance: '50m',
-        targetObject: 'glass doors or glass entrance lobby',
-        turnDirection: 'straight',
-        screenPosition: { top: '35%', left: '50%' }
-      },
-      {
-        id: 2,
-        title: 'Turnstile Barrier #2',
-        cue: 'Tap badge at turnstile and head towards elevators.',
-        distance: '20m',
-        targetObject: 'turnstile barrier or security gates or badge reader',
-        turnDirection: 'right',
-        screenPosition: { top: '42%', left: '60%' }
-      },
-      {
-        id: 3,
-        title: 'Desk Bay 4B',
-        cue: 'Take elevator to 3rd floor, turn right past cafeteria.',
-        distance: 'Doorstep',
-        targetObject: 'office workstations or glass cubicle or cafeteria',
-        turnDirection: 'right',
-        screenPosition: { top: '38%', left: '50%' }
-      }
-    ]
-  }
-};
+const EMBEDDED_API_KEY =
+  import.meta.env.VITE_GEMINI_API_KEY ||
+  (typeof atob !== 'undefined'
+    ? atob('QVEuQWI4Uk42SUI4WmxXd3plMkduWl81Z3g3bDNhekVSRkhOeVA4c3dOWmhseEdtaGVnNEE=')
+    : '');
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'driver' | 'resident' | 'partner'>('driver');
-  
-  // App Mode: 'gemini' (Real-time live AI) vs 'sim' (Instant mock simulator)
-  const [appMode, setAppMode] = useState<'gemini' | 'sim'>(() => {
-    const saved = localStorage.getItem('patavision_app_mode');
-    return saved === 'sim' ? 'sim' : 'gemini';
-  });
+  const [activeTab, setActiveTab] = useState<'driver' | 'resident'>('driver');
+  const [appMode, setAppMode] = useState<'gemini' | 'sim'>(() =>
+    localStorage.getItem('patavision_app_mode') === 'sim' ? 'sim' : 'gemini'
+  );
 
   // Settings & BYOK
-  const [apiKey, setApiKey] = useState<string>(() => {
-    return localStorage.getItem('patavision_gemini_key') || EMBEDDED_API_KEY;
-  });
+  const [apiKey, setApiKey] = useState<string>(
+    () => localStorage.getItem('patavision_gemini_key') || EMBEDDED_API_KEY
+  );
   const [showSettings, setShowSettings] = useState(false);
+  const [showGuide, setShowGuide] = useState<boolean>(
+    () => !localStorage.getItem('patavision_guide_seen')
+  );
+  const dismissGuide = () => {
+    setShowGuide(false);
+    localStorage.setItem('patavision_guide_seen', '1');
+  };
   const [testApiStatus, setTestApiStatus] = useState<string | null>(null);
-  const [testingApi, setTestingApi] = useState(false);
+  const [testConnPhase, setTestConnPhase] = useState<
+    'idle' | 'loading' | 'tick' | 'model' | 'error'
+  >('idle');
+  const testTimersRef = useRef<number[]>([]);
 
-  // Voice Settings
+  const clearTestTimers = () => {
+    testTimersRef.current.forEach(id => window.clearTimeout(id));
+    testTimersRef.current = [];
+  };
+
+  useEffect(() => () => clearTestTimers(), []);
+
+  // Voice & AR state
   const [speechLang, setSpeechLang] = useState<'hi' | 'en'>('hi');
   const [isSpeaking, setIsSpeaking] = useState(false);
-
-  // AR Overlay Toggle & Live Auto-Track Loop
   const [showArLayers, setShowArLayers] = useState(true);
-  const [autoTrack, setAutoTrack] = useState<boolean>(false);
+  const [autoTrack, setAutoTrack] = useState(false);
 
-  // Active Capsule State (Loaded from Hash or LocalStorage or Default)
+  // Active Capsule & Directory State
   const [selectedPreset, setSelectedPreset] = useState<string>('gali');
   const [capsule, setCapsule] = useState<AddressCapsule>(() => {
+    listDirectory();
     if (window.location.hash.startsWith('#capsule=')) {
       try {
         const encoded = window.location.hash.replace('#capsule=', '');
-        const decoded = JSON.parse(decodeURIComponent(atob(encoded)));
-        return decoded;
+        return JSON.parse(decodeURIComponent(atob(encoded)));
       } catch (e) {
         console.warn('Failed to parse URL capsule hash:', e);
       }
     }
     const saved = localStorage.getItem('patavision_saved_capsule');
     if (saved) {
-      try { return JSON.parse(saved); } catch {}
+      try {
+        return JSON.parse(saved);
+      } catch {}
     }
     return PRESET_CAPSULES.gali;
   });
 
-  // Editing State in Resident Tab
+  const [lookupQuery, setLookupQuery] = useState('');
+  const [lookupStatus, setLookupStatus] = useState<{
+    type: 'found' | 'miss' | 'info';
+    text: string;
+  } | null>(null);
+  const [cloudNotice, setCloudNotice] = useState<string | null>(null);
+  const cloudActive = isCloudEnabled();
+
+  // Editing State
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<AddressCapsule>(capsule);
+  const [editSlug, setEditSlug] = useState<string>(() => stripHandlePrefix(capsule.pataHandle));
+  const [editPhone, setEditPhone] = useState('');
+  const [editPhonePreviewHash, setEditPhonePreviewHash] = useState('');
 
-  // Driver HUD Navigation State
+  // Video Walkthrough & Photo Capture State
+  const [isRecordingWalkthrough, setIsRecordingWalkthrough] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [processingVideo, setProcessingVideo] = useState(false);
+  const [videoExtractStatus, setVideoExtractStatus] = useState<string | null>(null);
+  const [extractedFrames, setExtractedFrames] = useState<ExtractedFrame[]>([]);
+  const [analyzingStepIdx, setAnalyzingStepIdx] = useState<number | null>(null);
+
+  const walkthroughVideoRef = useRef<HTMLVideoElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<number | null>(null);
+  const videoUploadInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Driver HUD State
   const [currentStep, setCurrentStep] = useState(0);
   const [copied, setCopied] = useState(false);
-
-  // Camera, Dynamic Bounding Boxes & Detection
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [detected, setDetected] = useState(false);
   const [detectedBox, setDetectedBox] = useState<DetectedBoundingBox | null>(null);
-  const [statusMessage, setStatusMessage] = useState('Aim camera at path to identify landmark');
+  const [statusMessage, setStatusMessage] = useState('Aim reticle at landmark');
   const [aiReasoning, setAiReasoning] = useState<string | null>(null);
 
-  // Concurrency lock for Auto-Track
-  const isScanningRef = useRef<boolean>(false);
-  const autoTrackRef = useRef<boolean>(autoTrack);
+  const isScanningRef = useRef(false);
+  const autoTrackRef = useRef(autoTrack);
   autoTrackRef.current = autoTrack;
+  const cameraMountedRef = useRef(true);
+  const speakTimerRef = useRef<number | null>(null);
 
-  // Start Camera
+  const [verificationOverlay, setVerificationOverlay] =
+    useState<VerificationOverlayState | null>(null);
+  const autoAdvanceTimerRef = useRef<number | null>(null);
+
+  const dismissVerificationOverlay = () => {
+    if (autoAdvanceTimerRef.current) {
+      window.clearTimeout(autoAdvanceTimerRef.current);
+      autoAdvanceTimerRef.current = null;
+    }
+    setVerificationOverlay(null);
+  };
+
+  const triggerVerifiedOverlay = (confidence: string, reasoning?: string) => {
+    dismissVerificationOverlay();
+    navigator.vibrate?.([18, 40, 28]);
+    setVerificationOverlay({ status: 'verified', confidence, reasoning });
+    if (currentStep < capsule.waypoints.length - 1) {
+      autoAdvanceTimerRef.current = window.setTimeout(() => {
+        autoAdvanceTimerRef.current = null;
+        setVerificationOverlay(null);
+        setCurrentStep(prev => Math.min(capsule.waypoints.length - 1, prev + 1));
+        setDetectedBox(null);
+      }, 1350);
+    }
+  };
+
+  // Auto-load short route (/p/<slug> or ?p=<slug>) from Supabase on mount
+  useEffect(() => {
+    const pathMatch = window.location.pathname.match(/^\/p\/([^/?#]+)/i);
+    const querySlug = new URLSearchParams(window.location.search).get('p');
+    const slug = pathMatch?.[1] || querySlug;
+    if (!slug) return;
+
+    let cancelled = false;
+    setStatusMessage(`Loading ${normalizeHandle(slug)}`);
+    lookupByHandleAsync(slug).then(match => {
+      if (cancelled) return;
+      if (match) {
+        setCapsule(match);
+        setEditForm(match);
+        setEditSlug(stripHandlePrefix(match.pataHandle));
+        setSelectedPreset('');
+        setCurrentStep(0);
+        setDetectedBox(null);
+        setActiveTab('driver');
+        setStatusMessage(`Loaded ${match.pataHandle}`);
+      } else {
+        setStatusMessage(`Route not found: ${normalizeHandle(slug)}`);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Live SHA-256 preview while typing phone number
+  useEffect(() => {
+    let cancelled = false;
+    if (!editPhone.trim()) {
+      setEditPhonePreviewHash('');
+      return;
+    }
+    hashPhone(editPhone).then(h => {
+      if (!cancelled) setEditPhonePreviewHash(h);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [editPhone]);
+
+  // HUD Camera lifecycle
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 720 }, height: { ideal: 960 } }
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        setCameraActive(true);
+      if (!cameraMountedRef.current || !videoRef.current) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
       }
+      if (videoRef.current.srcObject !== stream) {
+        videoRef.current.srcObject = stream;
+      }
+      await videoRef.current.play().catch(() => {});
+      if (cameraMountedRef.current) setCameraActive(true);
     } catch {
       setCameraActive(false);
     }
@@ -259,29 +245,93 @@ export default function App() {
   };
 
   useEffect(() => {
+    cameraMountedRef.current = activeTab === 'driver';
     if (activeTab === 'driver') startCamera();
-    else stopCamera();
-    return () => stopCamera();
+    else {
+      stopCamera();
+      dismissVerificationOverlay();
+    }
+    return () => {
+      cameraMountedRef.current = false;
+      stopCamera();
+      if (autoAdvanceTimerRef.current) {
+        window.clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = null;
+      }
+    };
   }, [activeTab]);
+
+  // Walkthrough recorder cleanup
+  const stopWalkthroughStream = () => {
+    if (recordingTimerRef.current) {
+      window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(t => t.stop());
+      mediaStreamRef.current = null;
+    }
+    if (walkthroughVideoRef.current) {
+      walkthroughVideoRef.current.srcObject = null;
+    }
+    setIsRecordingWalkthrough(false);
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'resident' || !isEditing) {
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.onstop = null;
+        mediaRecorderRef.current.stop();
+      }
+      stopWalkthroughStream();
+    }
+    return () => {
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.onstop = null;
+        mediaRecorderRef.current.stop();
+      }
+      stopWalkthroughStream();
+    };
+  }, [activeTab, isEditing]);
+
+  useEffect(() => {
+    if (isRecordingWalkthrough && walkthroughVideoRef.current && mediaStreamRef.current) {
+      walkthroughVideoRef.current.srcObject = mediaStreamRef.current;
+      walkthroughVideoRef.current.play().catch(() => {});
+    }
+  }, [isRecordingWalkthrough]);
 
   const speak = (text: string) => {
     if (!window.speechSynthesis) return;
+    if (speakTimerRef.current) {
+      window.clearTimeout(speakTimerRef.current);
+      speakTimerRef.current = null;
+    }
     window.speechSynthesis.cancel();
     const utt = new SpeechSynthesisUtterance(text);
     utt.lang = speechLang === 'hi' ? 'hi-IN' : 'en-US';
     utt.rate = 0.95;
-    utt.onstart = () => setIsSpeaking(true);
-    utt.onend = () => setIsSpeaking(false);
+    utt.onstart = () => {
+      setIsSpeaking(true);
+      speakTimerRef.current = window.setTimeout(() => setIsSpeaking(false), 5000);
+    };
+    const stopSpeaking = () => {
+      if (speakTimerRef.current) {
+        window.clearTimeout(speakTimerRef.current);
+        speakTimerRef.current = null;
+      }
+      setIsSpeaking(false);
+    };
+    utt.onend = stopSpeaking;
+    utt.onerror = stopSpeaking;
     window.speechSynthesis.speak(utt);
   };
 
   const activeWaypoint = capsule.waypoints[currentStep] || capsule.waypoints[0];
 
-  // Play audio on step change and reset dynamic boxes
   useEffect(() => {
     if (activeTab === 'driver' && activeWaypoint) {
-      const prompt = `${activeWaypoint.title}. ${activeWaypoint.cue}`;
-      speak(prompt);
+      speak(`${activeWaypoint.title}. ${activeWaypoint.cue}`);
       setDetected(false);
       setDetectedBox(null);
       setAiReasoning(null);
@@ -289,58 +339,74 @@ export default function App() {
     }
   }, [currentStep, activeTab, speechLang, capsule]);
 
-  // Mode change handler
   const handleSetMode = (mode: 'gemini' | 'sim') => {
     setAppMode(mode);
     localStorage.setItem('patavision_app_mode', mode);
   };
 
-  // Test API Key
   const handleTestApiKey = async () => {
-    setTestingApi(true);
-    setTestApiStatus('Testing connection...');
+    if (testConnPhase !== 'idle') return;
+    clearTestTimers();
+    setTestConnPhase('loading');
+    setTestApiStatus(null);
+    const startTime = Date.now();
+    let ok = false;
+    let errorMsg = '';
+
     try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Respond with OK' }] }]
-        })
-      });
-      if (res.ok) {
-        setTestApiStatus('✓ Connected & Active (Gemini 3.5 Flash Lite)');
-      } else {
-        const err = await res.json();
-        setTestApiStatus(`Error ${res.status}: ${err?.error?.message || 'Failed'}`);
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: 'Respond with OK' }] }] })
+        }
+      );
+      if (res.ok) ok = true;
+      else {
+        const err = await res.json().catch(() => null);
+        errorMsg = `Error ${res.status}: ${err?.error?.message || 'Failed'}`;
       }
     } catch (e: any) {
-      setTestApiStatus(`Connection failed: ${e.message}`);
-    } finally {
-      setTestingApi(false);
+      errorMsg = `Connection failed: ${e.message}`;
     }
+
+    const waitMs = Math.max(0, 650 - (Date.now() - startTime));
+    const t1 = window.setTimeout(() => {
+      if (ok) {
+        setTestConnPhase('tick');
+        const t2 = window.setTimeout(() => {
+          setTestConnPhase('model');
+          const t3 = window.setTimeout(() => setTestConnPhase('idle'), 2400);
+          testTimersRef.current.push(t3);
+        }, 750);
+        testTimersRef.current.push(t2);
+      } else {
+        setTestConnPhase('error');
+        setTestApiStatus(errorMsg);
+        const t2 = window.setTimeout(() => setTestConnPhase('idle'), 2600);
+        testTimersRef.current.push(t2);
+      }
+    }, waitMs);
+    testTimersRef.current.push(t1);
   };
 
-  // Scan action (Real Gemini Vision OR Fast Simulator)
   const handleScan = async (isAuto = false) => {
     if (!activeWaypoint || isScanningRef.current) return;
     isScanningRef.current = true;
     setScanning(true);
     if (!isAuto) setAiReasoning(null);
 
-    // MODE 1: LIVE GEMINI MULTIMODAL INFERENCE WITH DYNAMIC BOUNDING BOXES
     if (appMode === 'gemini') {
-      setStatusMessage('⚡ Gemini AI analyzing camera frame...');
-      
-      // Capture frame from video to canvas
+      setStatusMessage('Analyzing frame');
       let base64Image = '';
       if (videoRef.current && canvasRef.current) {
-        const video = videoRef.current;
         const canvas = canvasRef.current;
         canvas.width = 480;
         canvas.height = 360;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(video, 0, 0, 480, 360);
+          ctx.drawImage(videoRef.current, 0, 0, 480, 360);
           base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
         }
       }
@@ -348,28 +414,10 @@ export default function App() {
       if (base64Image && apiKey) {
         const models = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
         let successResult: any = null;
-
         const systemPrompt = `You are PataVision AR, an unmapped last-100m spatial navigation assistant for Indian doorsteps.
 Target landmark to locate: "${activeWaypoint.title}" (${activeWaypoint.targetObject}).
 Guidance cue: "${activeWaypoint.cue}".
 Destination: "${capsule.addressTitle}".
-
-Task:
-Analyze the camera snapshot.
-1. Check if the target landmark (${activeWaypoint.targetObject}) or matching physical structure/corridor/gate/signboard is visible in the frame.
-2. If found:
-   - "found": true
-   - "label": short 2-3 word name of the detected object
-   - "box_2d": [ymin, xmin, ymax, xmax] as integers normalized between 0 and 1000 representing the exact bounding box around the object in the frame.
-   - "reasoning": 1-sentence concise observation of what is spotted.
-   - "guidance": 1-sentence tactical action for the user.
-3. If NOT found:
-   - "found": false
-   - "label": null
-   - "box_2d": null
-   - "reasoning": short note of what is visible instead.
-   - "guidance": where the user should turn or point camera.
-
 Output strictly valid JSON with no markdown wrapping:
 {
   "found": boolean,
@@ -382,24 +430,24 @@ Output strictly valid JSON with no markdown wrapping:
 
         for (const model of models) {
           try {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-            const res = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { text: systemPrompt },
-                    { inline_data: { mime_type: 'image/jpeg', data: base64Image } }
-                  ]
-                }],
-                generationConfig: {
-                  response_mime_type: 'application/json',
-                  temperature: 0.2
-                }
-              })
-            });
-
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [
+                    {
+                      parts: [
+                        { text: systemPrompt },
+                        { inline_data: { mime_type: 'image/jpeg', data: base64Image } }
+                      ]
+                    }
+                  ],
+                  generationConfig: { response_mime_type: 'application/json', temperature: 0.2 }
+                })
+              }
+            );
             if (res.ok) {
               const data = await res.json();
               const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -420,7 +468,7 @@ Output strictly valid JSON with no markdown wrapping:
 
           if (successResult.found) {
             setDetected(true);
-            if (successResult.box_2d && Array.isArray(successResult.box_2d) && successResult.box_2d.length === 4) {
+            if (Array.isArray(successResult.box_2d) && successResult.box_2d.length === 4) {
               setDetectedBox({
                 ymin: successResult.box_2d[0],
                 xmin: successResult.box_2d[1],
@@ -430,17 +478,31 @@ Output strictly valid JSON with no markdown wrapping:
                 confidence: successResult.confidence || 'high'
               });
             }
-            setStatusMessage(`Target Locked: ${activeWaypoint.title}`);
-            const feedbackText = speechLang === 'hi' 
-              ? `रास्ता मिल गया। ${successResult.guidance}` 
-              : `Target locked. ${successResult.guidance}`;
-            speak(feedbackText);
+            setStatusMessage(`Locked: ${activeWaypoint.title}`);
+            speak(
+              speechLang === 'hi'
+                ? `रास्ता मिल गया। ${successResult.guidance}`
+                : `Target locked. ${successResult.guidance}`
+            );
+            if (!isAuto) {
+              triggerVerifiedOverlay(successResult.confidence || 'high', successResult.reasoning);
+            }
           } else {
             setDetected(false);
             setDetectedBox(null);
-            setStatusMessage(successResult.guidance || 'Adjust angle towards landmark');
+            setStatusMessage(successResult.guidance || 'Pan camera toward landmark');
             if (!isAuto) {
-              speak(speechLang === 'hi' ? 'दिशानिर्देश के अनुसार कैमरा घुमाएं' : 'Pan camera towards the landmark');
+              navigator.vibrate?.([45, 50, 45]);
+              setVerificationOverlay({
+                status: 'failed',
+                reasoning: successResult.reasoning,
+                guidance: successResult.guidance || 'Pan camera toward landmark'
+              });
+              speak(
+                speechLang === 'hi'
+                  ? 'दिशानिर्देश के अनुसार कैमरा घुमाएं'
+                  : 'Pan camera toward the landmark'
+              );
             }
           }
           return;
@@ -448,13 +510,12 @@ Output strictly valid JSON with no markdown wrapping:
       }
     }
 
-    // MODE 2: SIMULATOR MODE (OR INSTANT FALLBACK)
-    setStatusMessage('Simulating verification & bounding box...');
+    // Simulator fallback
+    setStatusMessage('Simulating landmark verification');
     setTimeout(() => {
       setScanning(false);
       isScanningRef.current = false;
       setDetected(true);
-      // Simulate dynamic object bounding box around the preset landmark coordinate
       const topNum = parseInt(activeWaypoint.screenPosition.top) * 10 || 350;
       const leftNum = parseInt(activeWaypoint.screenPosition.left) * 10 || 500;
       setDetectedBox({
@@ -465,22 +526,22 @@ Output strictly valid JSON with no markdown wrapping:
         label: activeWaypoint.title,
         confidence: 'high'
       });
-      setAiReasoning('Simulated visual match: landmark dynamically bounded on feed');
+      setAiReasoning('Simulated match locked on landmark');
       setStatusMessage(`Verified: ${activeWaypoint.title}`);
-      speak(speechLang === 'hi' ? 'रास्ता मिल गया। आगे बढ़ें।' : 'Target locked. Follow the path.');
-    }, 650);
+      speak(
+        speechLang === 'hi' ? 'रास्ता मिल गया। आगे बढ़ें।' : 'Target locked. Follow the path.'
+      );
+      if (!isAuto) {
+        triggerVerifiedOverlay('high', 'Simulated match locked on landmark');
+      }
+    }, 350);
   };
 
-  // Continuous Auto-Track Loop (grabs frames every 2.8s)
   useEffect(() => {
     if (!autoTrack || activeTab !== 'driver' || !cameraActive) return;
-
     const timer = setInterval(() => {
-      if (!isScanningRef.current && autoTrackRef.current) {
-        handleScan(true);
-      }
+      if (!isScanningRef.current && autoTrackRef.current) handleScan(true);
     }, 2800);
-
     return () => clearInterval(timer);
   }, [autoTrack, activeTab, cameraActive, currentStep, capsule, appMode, apiKey]);
 
@@ -491,73 +552,235 @@ Output strictly valid JSON with no markdown wrapping:
     }
   };
 
-  // Copy shareable link (encoded with capsule data!)
-  const copyShareableLink = () => {
-    const jsonString = JSON.stringify(capsule);
-    const base64 = btoa(encodeURIComponent(jsonString));
-    const fullUrl = `${window.location.origin}${window.location.pathname}#capsule=${base64}`;
-    navigator.clipboard.writeText(fullUrl);
+  const copyShareableLink = async () => {
+    const slug = stripHandlePrefix(normalizeHandle(capsule.pataHandle));
+    if (cloudActive) {
+      const res = await saveToDirectoryAsync(capsule);
+      setCloudNotice(!res.savedToCloud && res.error ? `Cloud sync pending: ${res.error}` : null);
+      navigator.clipboard.writeText(`${window.location.origin}/p/${slug}`);
+    } else {
+      navigator.clipboard.writeText(
+        `${window.location.origin}${window.location.pathname}#capsule=${encodeCapsuleForHash(capsule)}`
+      );
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Apply a Preset Capsule
-  const handleApplyPreset = (key: string) => {
-    const p = PRESET_CAPSULES[key];
-    if (p) {
-      setSelectedPreset(key);
-      setCapsule(p);
-      setEditForm(p);
-      localStorage.setItem('patavision_saved_capsule', JSON.stringify(p));
-      window.location.hash = '';
+  const handleLookup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = lookupQuery.trim();
+    if (!q) return setLookupStatus(null);
+
+    const digitsOnly = q.replace(/\D/g, '');
+    const isPhoneQuery = digitsOnly.length >= 7 && !q.includes('/') && !q.includes('.');
+    setLookupStatus({ type: 'info', text: 'Searching directory' });
+
+    if (isPhoneQuery) {
+      const { hash, match } = await lookupByPhoneAsync(q);
+      if (match) {
+        setCapsule(match);
+        setEditForm(match);
+        setEditSlug(stripHandlePrefix(match.pataHandle));
+        setSelectedPreset('');
+        setCurrentStep(0);
+        setDetectedBox(null);
+        setLookupStatus({ type: 'found', text: `Loaded ${match.pataHandle} (${formatShortHash(hash)})` });
+      } else {
+        setLookupStatus({ type: 'miss', text: `No saved route for ${formatShortHash(hash)}` });
+      }
+      return;
+    }
+
+    const match = await lookupByHandleAsync(q);
+    if (match) {
+      setCapsule(match);
+      setEditForm(match);
+      setEditSlug(stripHandlePrefix(match.pataHandle));
+      setSelectedPreset('');
       setCurrentStep(0);
       setDetectedBox(null);
+      setLookupStatus({ type: 'found', text: `Loaded ${match.pataHandle}` });
+    } else {
+      setLookupStatus({ type: 'miss', text: `No route found for ${normalizeHandle(q)}` });
     }
   };
 
-  // Save customized capsule
-  const handleSaveCustomCapsule = () => {
-    setCapsule(editForm);
-    localStorage.setItem('patavision_saved_capsule', JSON.stringify(editForm));
-    
-    // Update hash so URL is immediately shareable
-    const jsonString = JSON.stringify(editForm);
-    const base64 = btoa(encodeURIComponent(jsonString));
-    window.location.hash = `#capsule=${base64}`;
-    
+  const handleApplyPreset = (key: string) => {
+    const p = PRESET_CAPSULES[key];
+    if (!p) return;
+    setSelectedPreset(key);
+    setCapsule(p);
+    setEditForm(p);
+    setEditSlug(stripHandlePrefix(p.pataHandle));
+    setLookupStatus(null);
+    localStorage.setItem('patavision_saved_capsule', JSON.stringify(p));
+    window.location.hash = '';
+    setCurrentStep(0);
+    setDetectedBox(null);
+  };
+
+  const processWalkthroughBlob = async (blob: Blob) => {
+    setProcessingVideo(true);
+    setVideoExtractStatus('Extracting key frames');
+    try {
+      const frames = await extractKeyFramesFromVideo(blob, 5);
+      setExtractedFrames(frames);
+      setVideoExtractStatus(
+        appMode === 'gemini'
+          ? `Analyzing ${frames.length} frames with Gemini`
+          : `Generating ${frames.length} simulated waypoints`
+      );
+      const waypoints = await extractWaypointsFromFrames(
+        frames,
+        apiKey,
+        appMode,
+        editForm.macroAnchor
+      );
+      if (waypoints.length > 0) {
+        setEditForm(prev => ({ ...prev, waypoints }));
+        setVideoExtractStatus(`Extracted ${waypoints.length} landmarks from video`);
+      } else {
+        setVideoExtractStatus('No landmarks detected, try another clip');
+      }
+    } catch (err: any) {
+      setVideoExtractStatus(err?.message || 'Failed to process video');
+    } finally {
+      setProcessingVideo(false);
+    }
+  };
+
+  const handleStartWalkthroughRecording = async () => {
+    if (isRecordingWalkthrough || processingVideo) return;
+    setVideoExtractStatus(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false
+      });
+      mediaStreamRef.current = stream;
+      setIsRecordingWalkthrough(true);
+      setRecordingSeconds(0);
+      recordedChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = e => {
+        if (e.data?.size > 0) recordedChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'video/webm' });
+        stopWalkthroughStream();
+        if (blob.size > 0) processWalkthroughBlob(blob);
+      };
+      recorder.start(250);
+      recordingTimerRef.current = window.setInterval(() => setRecordingSeconds(p => p + 1), 1000);
+    } catch {
+      stopWalkthroughStream();
+      setVideoExtractStatus('Camera unavailable, upload a video clip instead');
+    }
+  };
+
+  const handleStopWalkthroughRecording = () => {
+    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+    else stopWalkthroughStream();
+  };
+
+  const handleVideoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) processWalkthroughBlob(file);
+  };
+
+  const handleStepPhotoCapture = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setAnalyzingStepIdx(index);
+    try {
+      const frame = await resizePhotoToFrame(file);
+      const analyzed = await analyzeSinglePhoto(frame, apiKey, appMode);
+      setEditForm(prev => {
+        const updated = [...prev.waypoints];
+        updated[index] = {
+          ...updated[index],
+          title: analyzed.title || updated[index].title,
+          cue: analyzed.cue || updated[index].cue,
+          turnDirection: analyzed.turnDirection || updated[index].turnDirection,
+          targetObject: analyzed.targetObject || updated[index].targetObject,
+          thumbnail: analyzed.thumbnail
+        };
+        return { ...prev, waypoints: updated };
+      });
+    } catch {
+      // Ignore failed image read
+    } finally {
+      setAnalyzingStepIdx(null);
+    }
+  };
+
+  const handleSaveCustomCapsule = async () => {
+    const normalizedHandle = normalizeHandle(editSlug || editForm.pataHandle);
+    const slug = stripHandlePrefix(normalizedHandle);
+    let phoneHash = editForm.phoneHash;
+    if (editPhone.trim()) phoneHash = await hashPhone(editPhone);
+
+    const finalCapsule: AddressCapsule = {
+      ...editForm,
+      pataHandle: normalizedHandle,
+      phoneHash,
+      updatedAt: Date.now()
+    };
+
+    setCapsule(finalCapsule);
+    setEditForm(finalCapsule);
+    localStorage.setItem('patavision_saved_capsule', JSON.stringify(finalCapsule));
+
+    const { savedToCloud, error } = await saveToDirectoryAsync(finalCapsule);
+    if (savedToCloud) {
+      setCloudNotice(null);
+      window.history.replaceState(null, '', `/p/${slug}`);
+    } else {
+      if (error) setCloudNotice(`Cloud sync pending: ${error}`);
+      window.location.hash = `#capsule=${encodeCapsuleForHash(finalCapsule)}`;
+    }
+
+    setEditPhone('');
     setIsEditing(false);
     setCurrentStep(0);
     setDetectedBox(null);
-    setActiveTab('driver'); // jump to driver view to test immediately!
+    setActiveTab('driver');
   };
 
-  // Reset to default
   const handleResetToDefault = () => {
     localStorage.removeItem('patavision_saved_capsule');
     window.location.hash = '';
     setCapsule(PRESET_CAPSULES.gali);
     setEditForm(PRESET_CAPSULES.gali);
+    setEditSlug(stripHandlePrefix(PRESET_CAPSULES.gali.pataHandle));
+    setEditPhone('');
+    setExtractedFrames([]);
+    setVideoExtractStatus(null);
     setSelectedPreset('gali');
     setIsEditing(false);
     setCurrentStep(0);
     setDetectedBox(null);
   };
 
-  // Waypoint editor helpers
   const handleAddWaypoint = () => {
-    const newId = Date.now();
-    const newW: Waypoint = {
-      id: newId,
-      title: 'New Waypoint',
-      cue: 'Walk straight towards landmark',
-      distance: '30m',
-      targetObject: 'gate or door or building',
-      turnDirection: 'straight',
-      screenPosition: { top: '38%', left: '50%' }
-    };
     setEditForm(prev => ({
       ...prev,
-      waypoints: [...prev.waypoints, newW]
+      waypoints: [
+        ...prev.waypoints,
+        {
+          id: Date.now(),
+          title: 'New Waypoint',
+          cue: 'Walk straight toward landmark',
+          distance: '30 m',
+          targetObject: 'gate or door or building',
+          turnDirection: 'straight',
+          screenPosition: { top: '38%', left: '50%' }
+        }
+      ]
     }));
   };
 
@@ -577,907 +800,300 @@ Output strictly valid JSON with no markdown wrapping:
     }));
   };
 
+  const isLastStep = currentStep >= capsule.waypoints.length - 1;
+
   return (
-    <div className="min-h-screen bg-[#0C0D0E] text-neutral-100 flex flex-col justify-between max-w-sm mx-auto select-none font-sans antialiased">
-      <canvas ref={canvasRef} className="hidden" />
+    <div className="min-h-dvh bg-[#0f0f10] text-[#ededed] flex items-center justify-center sm:p-6 select-none font-sans antialiased">
+      <div className="w-full min-h-dvh sm:min-h-0 sm:max-w-[420px] sm:h-[min(860px,calc(100dvh-48px))] bg-[#141415] sm:rounded-[20px] sm:border sm:border-[#ededed]/[0.08] flex flex-col overflow-hidden">
+        <canvas ref={canvasRef} className="hidden" />
 
-      {/* TOP HEADER */}
-      <header className="px-3.5 py-2 border-b border-neutral-800/80 bg-[#0C0D0E]/95 backdrop-blur sticky top-0 z-40 space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-bold tracking-tight text-white">PataVision</span>
-            <a 
-              href="/demo.html" 
-              className="text-[10px] bg-neutral-800/90 hover:bg-neutral-700 text-emerald-300 hover:text-white px-2 py-0.5 rounded-full border border-emerald-500/30 font-medium flex items-center gap-1 transition shadow-sm"
-              title="Open Figma-style Demonstrative Showcase"
-            >
-              <span>Showcase</span>
-              <ArrowRight className="w-2.5 h-2.5" />
-            </a>
-          </div>
-
-          {/* Minimal Segment Switcher */}
-          <div className="flex bg-neutral-900 p-0.5 rounded-lg border border-neutral-800 text-[11px]">
-            <button
-              onClick={() => setActiveTab('driver')}
-              className={`px-2.5 py-1 rounded-md transition ${activeTab === 'driver' ? 'bg-neutral-800 text-white font-medium shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}
-            >
-              HUD
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('resident');
-                setIsEditing(true);
-              }}
-              className={`px-2.5 py-1 rounded-md transition ${activeTab === 'resident' ? 'bg-neutral-800 text-white font-medium shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}
-            >
-              Address
-            </button>
-            <button
-              onClick={() => setActiveTab('partner')}
-              className={`px-2.5 py-1 rounded-md transition ${activeTab === 'partner' ? 'bg-neutral-800 text-white font-medium shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}
-            >
-              Blinkit
-            </button>
-          </div>
-
-          <button 
-            onClick={() => setShowSettings(true)}
-            className="text-neutral-400 hover:text-white transition p-1 relative"
-            title="Settings & Key"
-          >
-            <Settings className="w-4 h-4" />
-            {appMode === 'gemini' && (
-              <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            )}
-          </button>
-        </div>
-
-        {/* TWO DIRECT OPTIONS AT TOP: [⚡ LIVE GEMINI AI vs 🎯 SIMULATOR] + [📍 TRY YOUR ADDRESS] */}
-        <div className="flex items-center justify-between gap-1.5 pt-0.5">
-          {/* Option 1: AI vs Simulator Toggle */}
-          <div className="flex bg-neutral-900/90 p-0.5 rounded-lg border border-neutral-800 text-[10px] font-medium flex-1">
-            <button
-              onClick={() => handleSetMode('gemini')}
-              className={`flex-1 py-1 rounded-md flex items-center justify-center gap-1 transition ${
-                appMode === 'gemini' 
-                  ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-semibold shadow-sm' 
-                  : 'text-neutral-400 hover:text-neutral-200'
-              }`}
-            >
-              <Zap className="w-3 h-3 text-emerald-400" />
-              Live Gemini AI
-            </button>
-            <button
-              onClick={() => handleSetMode('sim')}
-              className={`flex-1 py-1 rounded-md flex items-center justify-center gap-1 transition ${
-                appMode === 'sim' 
-                  ? 'bg-neutral-800 text-white font-semibold shadow-sm border border-neutral-700' 
-                  : 'text-neutral-400 hover:text-neutral-200'
-              }`}
-            >
-              <Navigation className="w-3 h-3 text-neutral-400" />
-              Simulator
-            </button>
-          </div>
-
-          {/* Option 2: Quick Action: Try Your Own Address */}
-          <button
-            onClick={() => {
-              setActiveTab('resident');
-              setIsEditing(true);
-            }}
-            className="px-2.5 py-1 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-[10px] text-neutral-300 hover:text-white flex items-center gap-1 transition font-medium"
-          >
-            <MapPin className="w-3 h-3 text-amber-400" />
-            Custom Address
-          </button>
-        </div>
-      </header>
-
-      {/* MAIN VIEW CONTENT */}
-      <main className="flex-1 flex flex-col relative overflow-hidden">
-        
-        {/* ========================================================
-            TAB 1: DRIVER AR HUD (DYNAMICALLY DRIVEN BY USER CAPSULE)
-           ======================================================== */}
-        {activeTab === 'driver' && (
-          <div className="flex-1 flex flex-col justify-between relative bg-black">
-            
-            {/* Top Telemetry & AR Controls Bar */}
-            <div className="absolute top-3 inset-x-3 z-30 flex items-center justify-between pointer-events-none">
-              <div className="bg-black/70 backdrop-blur-md border border-neutral-800/80 px-2.5 py-1 rounded-full flex items-center space-x-2">
-                <div className="flex space-x-1">
-                  {capsule.waypoints.map((_, i) => (
-                    <div 
-                      key={i} 
-                      className={`w-1.5 h-1.5 rounded-full transition-all ${
-                        i === currentStep ? 'bg-white w-3' : i < currentStep ? 'bg-emerald-400' : 'bg-neutral-700'
-                      }`}
-                    />
-                  ))}
-                </div>
-                <span className="text-[10px] text-neutral-400 font-mono">
-                  {currentStep + 1}/{capsule.waypoints.length}
-                </span>
-              </div>
-
-              {/* Continuous Auto-Track Toggle & Language Pill */}
-              <div className="flex items-center space-x-1.5 pointer-events-auto">
-                <button
-                  onClick={() => setAutoTrack(prev => !prev)}
-                  className={`bg-black/70 backdrop-blur-md border px-2 py-1 rounded-full text-[10px] font-medium flex items-center gap-1 transition ${
-                    autoTrack 
-                      ? 'border-emerald-400/80 bg-emerald-500/20 text-emerald-300 font-semibold animate-pulse' 
-                      : 'border-neutral-800 text-neutral-400 hover:text-white'
-                  }`}
-                  title="Toggle continuous live video analysis"
-                >
-                  <RefreshCw className={`w-3 h-3 ${autoTrack ? 'animate-spin text-emerald-400' : ''}`} />
-                  {autoTrack ? 'Live Auto: ON' : 'Live Auto: OFF'}
-                </button>
-
-                <button
-                  onClick={() => setShowArLayers(prev => !prev)}
-                  className={`bg-black/70 backdrop-blur-md border px-2 py-1 rounded-full text-[10px] font-medium flex items-center gap-1 transition ${
-                    showArLayers ? 'border-emerald-500/50 text-emerald-300' : 'border-neutral-800 text-neutral-400'
-                  }`}
-                  title="Toggle AR Overlay"
-                >
-                  <Layers className="w-3 h-3" />
-                  {showArLayers ? 'AR' : 'Off'}
-                </button>
-
-                <button
-                  onClick={() => setSpeechLang(p => p === 'hi' ? 'en' : 'hi')}
-                  className="bg-black/70 backdrop-blur-md border border-neutral-800 px-2 py-1 rounded-full text-[10px] font-medium text-neutral-300 hover:text-white"
-                >
-                  {speechLang === 'hi' ? '🇮🇳 HI' : '🇬🇧 EN'}
-                </button>
-              </div>
-            </div>
-
-            {/* Camera Viewport with AR Overlays */}
-            <div className="relative w-full h-full min-h-[440px] flex items-center justify-center bg-[#070809] overflow-hidden">
-              <video 
-                ref={videoRef} 
-                playsInline 
-                muted 
-                className={`w-full h-full object-cover transition-opacity duration-300 ${cameraActive ? 'opacity-90' : 'opacity-0'}`} 
-              />
-
-              {!cameraActive && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-neutral-400 z-10">
-                  <Camera className="w-8 h-8 mb-2 text-neutral-600 stroke-[1.5]" />
-                  <p className="text-xs mb-3 text-neutral-500">Camera feed standby</p>
-                  <button 
-                    onClick={startCamera} 
-                    className="px-3 py-1.5 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-neutral-300 hover:text-white transition pointer-events-auto"
-                  >
-                    Enable Camera
-                  </button>
-                </div>
-              )}
-
-              {/* ========================================================
-                  THE AR VISUAL CUES (OVERLAID DIRECTLY ON CAMERA)
-                 ======================================================== */}
-              {showArLayers && activeWaypoint && (
-                <div className="absolute inset-0 pointer-events-none z-20">
-                  
-                  {/* CUE 1: FLOATING SPATIAL LANDMARK PIN */}
-                  <div 
-                    className="absolute transition-all duration-700 flex flex-col items-center animate-fade-in"
-                    style={{ 
-                      top: activeWaypoint.screenPosition?.top || '35%', 
-                      left: activeWaypoint.screenPosition?.left || '50%',
-                      transform: 'translate(-50%, -50%)'
-                    }}
-                  >
-                    <div className={`px-2.5 py-1 rounded-full backdrop-blur-md border flex items-center gap-1.5 shadow-xl transition-all duration-300 ${
-                      detected 
-                        ? 'bg-emerald-950/80 border-emerald-400 text-emerald-200 scale-105' 
-                        : 'bg-black/75 border-white/20 text-white'
-                    }`}>
-                      <span className={`w-2 h-2 rounded-full ${detected ? 'bg-emerald-400' : 'bg-amber-400 animate-ping'}`} />
-                      <span className="text-[11px] font-semibold tracking-tight">{activeWaypoint.title}</span>
-                      <span className="text-[9px] text-neutral-400 font-mono">({activeWaypoint.distance})</span>
-                    </div>
-
-                    <div className="w-[1.5px] h-6 bg-gradient-to-b from-white/40 to-transparent" />
-                    <div className="w-1.5 h-1.5 rounded-full bg-white/60 -mt-0.5" />
-                  </div>
-
-                  {/* CUE 2: PERSPECTIVE GROUND PATH (ADAPTS TO TURN DIRECTION!) */}
-                  <div className="absolute inset-x-0 bottom-16 flex flex-col items-center justify-center opacity-85">
-                    <div className="bg-black/60 backdrop-blur px-2.5 py-0.5 rounded-full border border-neutral-800/80 mb-2 flex items-center gap-1 text-[10px] text-neutral-300">
-                      <span>Direction:</span>
-                      <span className="text-white font-bold capitalize">
-                        {activeWaypoint.turnDirection === 'right' && 'Turn Right ➡️'}
-                        {activeWaypoint.turnDirection === 'left' && 'Turn Left ⬅️'}
-                        {activeWaypoint.turnDirection === 'straight' && 'Follow Straight ⬆️'}
-                      </span>
-                    </div>
-
-                    {/* SVG 3D Perspective Walking Arrows */}
-                    <svg width="220" height="90" viewBox="0 0 220 90" className="overflow-visible">
-                      <defs>
-                        <linearGradient id="pathGrad" x1="0%" y1="100%" x2="0%" y2="0%">
-                          <stop offset="0%" stopColor="#10B981" stopOpacity="0.8" />
-                          <stop offset="100%" stopColor="#10B981" stopOpacity="0.1" />
-                        </linearGradient>
-                      </defs>
-
-                      {activeWaypoint.turnDirection === 'right' && (
-                        <g className="animate-pulse">
-                          <path d="M 110 90 Q 110 50 170 30" fill="none" stroke="url(#pathGrad)" strokeWidth="10" strokeLinecap="round" strokeDasharray="6 6" />
-                          <path d="M 160 20 L 180 30 L 165 45" fill="none" stroke="#10B981" strokeWidth="3.5" strokeLinecap="round" />
-                        </g>
-                      )}
-
-                      {activeWaypoint.turnDirection === 'left' && (
-                        <g className="animate-pulse">
-                          <path d="M 110 90 Q 110 50 50 30" fill="none" stroke="url(#pathGrad)" strokeWidth="10" strokeLinecap="round" strokeDasharray="6 6" />
-                          <path d="M 60 20 L 40 30 L 55 45" fill="none" stroke="#10B981" strokeWidth="3.5" strokeLinecap="round" />
-                        </g>
-                      )}
-
-                      {activeWaypoint.turnDirection === 'straight' && (
-                        <g className="animate-pulse">
-                          <path d="M 110 90 L 110 25" fill="none" stroke="url(#pathGrad)" strokeWidth="10" strokeLinecap="round" strokeDasharray="6 6" />
-                          <path d="M 98 35 L 110 20 L 122 35" fill="none" stroke="#10B981" strokeWidth="3.5" strokeLinecap="round" />
-                        </g>
-                      )}
-                    </svg>
-                  </div>
-
-                  {/* ========================================================
-                      CUE 3: REAL-TIME DYNAMIC AR BOUNDING BOX
-                      (Calculated directly from Gemini box_2d object detection)
-                     ======================================================== */}
-                  {detectedBox ? (
-                    <div 
-                      className="absolute transition-all duration-500 pointer-events-none z-25 flex flex-col justify-between p-1 rounded-xl shadow-[0_0_25px_rgba(16,185,129,0.5)] border-2 border-emerald-400 bg-emerald-400/15 animate-fade-in"
-                      style={{
-                        top: `${Math.min(75, Math.max(5, detectedBox.ymin / 10))}%`,
-                        left: `${Math.min(75, Math.max(5, detectedBox.xmin / 10))}%`,
-                        height: `${Math.min(70, Math.max(14, (detectedBox.ymax - detectedBox.ymin) / 10))}%`,
-                        width: `${Math.min(80, Math.max(18, (detectedBox.xmax - detectedBox.xmin) / 10))}%`,
-                      }}
-                    >
-                      {/* Floating HUD Target Tag */}
-                      <div className="self-start -mt-6 bg-emerald-500 text-black text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-lg">
-                        <Check className="w-2.5 h-2.5 stroke-[3]" />
-                        <span>{detectedBox.label}</span>
-                        <span className="text-[8px] bg-black/30 text-white px-1 rounded font-mono font-normal">
-                          {detectedBox.confidence}
-                        </span>
-                      </div>
-
-                      {/* Precision Crosshair Corner Brackets */}
-                      <div className="flex justify-between w-full">
-                        <div className="w-2.5 h-2.5 border-t-2 border-l-2 border-emerald-300" />
-                        <div className="w-2.5 h-2.5 border-t-2 border-r-2 border-emerald-300" />
-                      </div>
-
-                      {/* Center Dynamic Crosshair */}
-                      <div className="self-center flex items-center justify-center">
-                        <div className="w-2 h-2 rounded-full bg-emerald-400/70 animate-ping" />
-                      </div>
-
-                      <div className="flex justify-between w-full">
-                        <div className="w-2.5 h-2.5 border-b-2 border-l-2 border-emerald-300" />
-                        <div className="w-2.5 h-2.5 border-b-2 border-r-2 border-emerald-300" />
-                      </div>
-                    </div>
-                  ) : (
-                    /* Default Central Aiming Reticle (Active while searching) */
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className={`w-44 h-44 rounded-2xl transition-all duration-300 border ${
-                        scanning 
-                          ? 'border-amber-400/60 bg-amber-400/5 animate-pulse' 
-                          : 'border-white/20'
-                      }`}>
-                        {scanning && (
-                          <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent animate-pulse" />
-                        )}
-                        <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[9px] font-mono text-neutral-400 whitespace-nowrap bg-black/60 px-2 py-0.5 rounded-full border border-neutral-800">
-                          {scanning ? 'Detecting objects in feed...' : 'Aim reticle at landmark'}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                </div>
-              )}
-
-              {/* Status Message & AI Reasoning Pill */}
-              <div className="absolute bottom-3 inset-x-3 text-center pointer-events-none z-20 space-y-1">
-                {aiReasoning && (
-                  <div className="inline-flex items-center gap-1.5 bg-black/90 backdrop-blur-md px-3 py-1 rounded-full text-[10px] text-emerald-300 border border-emerald-500/40 shadow-lg">
-                    <Zap className="w-3 h-3 text-emerald-400 shrink-0" />
-                    <span>{aiReasoning}</span>
-                  </div>
-                )}
-                <div>
-                  <span className="inline-block bg-black/80 backdrop-blur-md px-3 py-1 rounded-full text-[11px] text-neutral-300 border border-neutral-800">
-                    {statusMessage}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom Floating Navigation Sheet */}
-            <div className="p-4 bg-[#111214] border-t border-neutral-800 space-y-3 z-30">
-              
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center space-x-1.5">
-                    <span className="text-[10px] text-neutral-500 uppercase tracking-wider font-semibold">
-                      Waypoint {currentStep + 1} • {activeWaypoint?.distance}
-                    </span>
-                    {appMode === 'gemini' && (
-                      <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.2 rounded font-medium">
-                        Gemini 3.5 Active
-                      </span>
-                    )}
-                    {autoTrack && (
-                      <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded font-mono font-bold animate-pulse">
-                        LIVE
-                      </span>
-                    )}
-                  </div>
-                  <h2 className="text-base font-semibold text-white tracking-tight mt-0.5">
-                    {activeWaypoint?.title}
-                  </h2>
-                  <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
-                    {activeWaypoint?.cue}
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => speak(`${activeWaypoint.title}. ${activeWaypoint.cue}`)}
-                  className={`p-2 rounded-full border transition pointer-events-auto ${
-                    isSpeaking 
-                      ? 'border-emerald-400 text-emerald-400 bg-emerald-500/10' 
-                      : 'border-neutral-800 bg-neutral-900 text-neutral-400 hover:text-white'
-                  }`}
-                  title="Replay Voice Direction"
-                >
-                  <Volume2 className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Action Controls */}
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  onClick={() => handleScan(false)}
-                  disabled={scanning}
-                  className="py-2.5 px-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-medium text-neutral-200 flex items-center justify-center gap-1.5 transition active:scale-[0.98] disabled:opacity-50 pointer-events-auto"
-                >
-                  {appMode === 'gemini' ? (
-                    <Zap className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : (
-                    <Camera className="w-3.5 h-3.5 text-neutral-400" />
-                  )}
-                  {scanning ? 'Detecting...' : appMode === 'gemini' ? 'Lock Landmark' : 'Verify Landmark'}
-                </button>
-
-                <button
-                  onClick={nextStep}
-                  disabled={currentStep >= capsule.waypoints.length - 1}
-                  className={`py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-[0.98] pointer-events-auto ${
-                    detected 
-                      ? 'bg-white text-black hover:bg-neutral-200 shadow-md' 
-                      : 'bg-neutral-900 text-neutral-400 border border-neutral-800'
-                  }`}
-                >
-                  {currentStep >= capsule.waypoints.length - 1 ? (
-                    'At Doorstep'
-                  ) : (
-                    <>
-                      Next Step
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </>
-                  )}
-                </button>
-              </div>
-
-            </div>
-
-          </div>
-        )}
-
-        {/* ========================================================
-            TAB 2: RESIDENT SETUP & CUSTOM WAYPOINT BUILDER
-           ======================================================== */}
-        {activeTab === 'resident' && (
-          <div className="p-4 space-y-4 overflow-y-auto">
-            
-            {/* Header with Edit Toggle */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-white tracking-tight">Your PataID Capsule</h2>
-                <p className="text-xs text-neutral-400 mt-0.5">
-                  {isEditing ? 'Configure your real-life address & waypoints' : 'Active navigation profile'}
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  if (!isEditing) setEditForm(capsule);
-                  setIsEditing(!isEditing);
-                }}
-                className="px-2.5 py-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs text-neutral-300 rounded-lg flex items-center gap-1"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                {isEditing ? 'Cancel' : 'Edit Capsule'}
-              </button>
-            </div>
-
-            {/* Quick Demo Presets Selector */}
-            <div className="p-2.5 bg-neutral-900/60 border border-neutral-800 rounded-xl space-y-1.5">
-              <span className="text-[10px] text-neutral-500 uppercase tracking-wider block font-medium">
-                Choose a Pre-built Address or Test Your Own
-              </span>
-              <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-                <button
-                  onClick={() => handleApplyPreset('gali')}
-                  className={`p-1.5 rounded-lg border text-left transition ${
-                    selectedPreset === 'gali' 
-                      ? 'border-emerald-500/50 bg-neutral-800 text-white font-medium' 
-                      : 'border-neutral-800 text-neutral-400 hover:text-neutral-200'
-                  }`}
-                >
-                  <Home className="w-3 h-3 mb-1 text-emerald-400" />
-                  <span className="block font-medium truncate">Bangalore Gali</span>
-                  <span className="text-[9px] text-neutral-500 block">3 Waypoints</span>
-                </button>
-
-                <button
-                  onClick={() => handleApplyPreset('hostel')}
-                  className={`p-1.5 rounded-lg border text-left transition ${
-                    selectedPreset === 'hostel' 
-                      ? 'border-emerald-500/50 bg-neutral-800 text-white font-medium' 
-                      : 'border-neutral-800 text-neutral-400 hover:text-neutral-200'
-                  }`}
-                >
-                  <Building className="w-3 h-3 mb-1 text-amber-400" />
-                  <span className="block font-medium truncate">Hostel / Hall</span>
-                  <span className="text-[9px] text-neutral-500 block">3 Waypoints</span>
-                </button>
-
-                <button
-                  onClick={() => handleApplyPreset('office')}
-                  className={`p-1.5 rounded-lg border text-left transition ${
-                    selectedPreset === 'office' 
-                      ? 'border-emerald-500/50 bg-neutral-800 text-white font-medium' 
-                      : 'border-neutral-800 text-neutral-400 hover:text-neutral-200'
-                  }`}
-                >
-                  <MapPin className="w-3 h-3 mb-1 text-blue-400" />
-                  <span className="block font-medium truncate">Tech Park Bay</span>
-                  <span className="text-[9px] text-neutral-500 block">3 Waypoints</span>
-                </button>
-              </div>
-            </div>
-
-            {/* IF EDITING MODE IS ACTIVE: BUILDER FORM */}
-            {isEditing ? (
-              <div className="space-y-4 pt-1">
-                <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-xl space-y-3">
-                  <div>
-                    <label className="text-[10px] text-neutral-500 uppercase tracking-wider block font-medium mb-1">
-                      Destination Address
-                    </label>
-                    <input
-                      type="text"
-                      value={editForm.addressTitle}
-                      onChange={e => setEditForm(p => ({ ...p, addressTitle: e.target.value }))}
-                      placeholder="e.g. Flat 401, Sai Residency"
-                      className="w-full bg-[#111214] border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-neutral-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] text-neutral-500 uppercase tracking-wider block font-medium mb-1">
-                      Macro GPS Anchor (Where Maps is Accurate)
-                    </label>
-                    <input
-                      type="text"
-                      value={editForm.macroAnchor}
-                      onChange={e => setEditForm(p => ({ ...p, macroAnchor: e.target.value }))}
-                      placeholder="e.g. Main Gate / Society Corner"
-                      className="w-full bg-[#111214] border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-neutral-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] text-neutral-500 uppercase tracking-wider block font-medium mb-1">
-                      Voice Instructions (Spoken to Driver)
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={editForm.voiceNoteHindi}
-                      onChange={e => setEditForm(p => ({ ...p, voiceNoteHindi: e.target.value }))}
-                      placeholder="Directions in your language..."
-                      className="w-full bg-[#111214] border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-neutral-600"
-                    />
-                  </div>
-                </div>
-
-                {/* Waypoints List Editor */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-neutral-300">
-                      Step-by-Step Waypoints ({editForm.waypoints.length})
-                    </span>
-                    <button
-                      onClick={handleAddWaypoint}
-                      className="text-xs text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add Step
-                    </button>
-                  </div>
-
-                  {editForm.waypoints.map((w, idx) => (
-                    <div key={w.id} className="p-3 bg-neutral-900 border border-neutral-800 rounded-xl space-y-2 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-[10px] text-neutral-500 font-bold">Step {idx + 1}</span>
-                        {editForm.waypoints.length > 1 && (
-                          <button
-                            onClick={() => handleDeleteWaypoint(idx)}
-                            className="text-neutral-500 hover:text-red-400 p-0.5"
-                            title="Remove step"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[9px] text-neutral-500 block mb-0.5">Landmark Name</label>
-                          <input
-                            type="text"
-                            value={w.title}
-                            onChange={e => handleUpdateWaypoint(idx, 'title', e.target.value)}
-                            placeholder="e.g. Iron Gate"
-                            className="w-full bg-[#111214] border border-neutral-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-neutral-600"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[9px] text-neutral-500 block mb-0.5">Distance</label>
-                          <input
-                            type="text"
-                            value={w.distance}
-                            onChange={e => handleUpdateWaypoint(idx, 'distance', e.target.value)}
-                            placeholder="e.g. 40m"
-                            className="w-full bg-[#111214] border border-neutral-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-neutral-600"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-[9px] text-neutral-500 block mb-0.5">Direction Cue (Action)</label>
-                        <input
-                          type="text"
-                          value={w.cue}
-                          onChange={e => handleUpdateWaypoint(idx, 'cue', e.target.value)}
-                          placeholder="e.g. Turn right past the transformer"
-                          className="w-full bg-[#111214] border border-neutral-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-neutral-600"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        <div>
-                          <label className="text-[9px] text-neutral-500 block mb-0.5">Turn Direction</label>
-                          <div className="flex bg-[#111214] p-0.5 rounded-lg border border-neutral-800">
-                            {(['left', 'straight', 'right'] as const).map(dir => (
-                              <button
-                                key={dir}
-                                type="button"
-                                onClick={() => handleUpdateWaypoint(idx, 'turnDirection', dir)}
-                                className={`flex-1 py-1 rounded text-[10px] font-medium capitalize flex items-center justify-center ${
-                                  w.turnDirection === dir ? 'bg-neutral-800 text-white' : 'text-neutral-500'
-                                }`}
-                              >
-                                {dir === 'left' && <ArrowLeft className="w-3 h-3" />}
-                                {dir === 'straight' && <ArrowUp className="w-3 h-3" />}
-                                {dir === 'right' && <ArrowRight className="w-3 h-3" />}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="text-[9px] text-neutral-500 block mb-0.5">AI Target Cue</label>
-                          <input
-                            type="text"
-                            value={w.targetObject}
-                            onChange={e => handleUpdateWaypoint(idx, 'targetObject', e.target.value)}
-                            placeholder="e.g. gate or door"
-                            className="w-full bg-[#111214] border border-neutral-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-neutral-600"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Save and Reset Controls */}
-                <div className="flex gap-2 pt-2">
-                  <button
-                    onClick={handleResetToDefault}
-                    className="flex-1 py-2.5 rounded-xl bg-neutral-900 border border-neutral-800 text-xs text-neutral-400 hover:text-white transition flex items-center justify-center gap-1.5"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    Reset
-                  </button>
-
-                  <button
-                    onClick={handleSaveCustomCapsule}
-                    className="flex-2 py-2.5 rounded-xl bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition flex items-center justify-center gap-1.5 shadow-lg"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    Save & Test in HUD
-                  </button>
-                </div>
-              </div>
-            ) : (
-              /* VIEW MODE (SAVED CAPSULE SUMMARY) */
-              <div className="space-y-4">
-                {/* Share Handle Card */}
-                <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] text-neutral-500 uppercase tracking-wider block font-medium">Universal Handle</span>
-                    <span className="text-sm font-mono text-white tracking-tight">{capsule.pataHandle}</span>
-                  </div>
-                  <button
-                    onClick={copyShareableLink}
-                    className="px-3 py-1.5 rounded-lg bg-white text-black font-semibold text-xs flex items-center gap-1 hover:bg-neutral-200 transition"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copied ? 'Link Copied!' : 'Share Link'}
-                  </button>
-                </div>
-
-                {/* Location Details */}
-                <div className="space-y-2">
-                  <span className="text-[11px] text-neutral-400 font-medium">Destination Details</span>
-                  <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-xl space-y-2 text-xs">
-                    <div>
-                      <span className="text-neutral-500 text-[10px] block">Address</span>
-                      <span className="text-neutral-200 font-medium">{capsule.addressTitle}</span>
-                    </div>
-                    <div className="pt-1 border-t border-neutral-800/80">
-                      <span className="text-neutral-500 text-[10px] block">Macro GPS Anchor</span>
-                      <span className="text-neutral-300">{capsule.macroAnchor}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Breadcrumbs List */}
-                <div className="space-y-2">
-                  <span className="text-[11px] text-neutral-400 font-medium">
-                    Waypoints ({capsule.waypoints.length} Steps)
-                  </span>
-                  
-                  <div className="space-y-1.5">
-                    {capsule.waypoints.map((w, idx) => (
-                      <div key={w.id} className="p-2.5 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-between text-xs">
-                        <div className="flex items-center space-x-2.5">
-                          <span className="w-5 h-5 rounded-full bg-neutral-800 text-neutral-400 flex items-center justify-center text-[10px] font-mono">
-                            {idx + 1}
-                          </span>
-                          <div>
-                            <span className="text-neutral-200 font-medium block">{w.title}</span>
-                            <span className="text-neutral-500 text-[11px]">{w.cue}</span>
-                          </div>
-                        </div>
-                        <span className="text-[10px] text-neutral-400 font-mono">{w.distance}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Voice Note Bar */}
-                <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <button 
-                      onClick={() => speak(capsule.voiceNoteHindi)}
-                      className="w-8 h-8 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white flex items-center justify-center transition"
-                    >
-                      <Play className="w-3.5 h-3.5 ml-0.5 fill-white" />
-                    </button>
-                    <div>
-                      <span className="text-xs text-neutral-200 font-medium block">Voice Directions</span>
-                      <span className="text-[10px] text-neutral-500">Audio playback ready</span>
-                    </div>
-                  </div>
-                  <span className="text-[10px] text-emerald-400 font-medium bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                    Active
-                  </span>
-                </div>
-
-                {/* Quick Action to Test */}
-                <button
-                  onClick={() => {
-                    setCurrentStep(0);
-                    setDetectedBox(null);
-                    setActiveTab('driver');
-                  }}
-                  className="w-full py-2.5 rounded-xl bg-white text-black font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-neutral-200 transition"
-                >
-                  <Navigation className="w-3.5 h-3.5" />
-                  Test This Route in Driver HUD
-                </button>
-              </div>
-            )}
-
-          </div>
-        )}
-
-        {/* ========================================================
-            TAB 3: BLINKIT PARTNER VIEW
-           ======================================================== */}
-        {activeTab === 'partner' && (
-          <div className="p-4 space-y-4">
-            <div>
-              <h2 className="text-sm font-semibold text-white tracking-tight">Partner Delivery Preview</h2>
-              <p className="text-xs text-neutral-400 mt-0.5">How logistics riders view the linked capsule</p>
-            </div>
-
-            {/* Clean Order Card */}
-            <div className="p-4 bg-neutral-900 border border-neutral-800 rounded-xl space-y-3">
-              <div className="flex items-center justify-between pb-2 border-b border-neutral-800">
-                <span className="text-xs font-semibold text-neutral-200">Blinkit Order #4920</span>
-                <span className="text-[10px] text-neutral-400">Due in 9m</span>
-              </div>
-
-              <div className="space-y-1 text-xs">
-                <span className="text-neutral-500 text-[10px]">Delivery Address</span>
-                <p className="text-neutral-200 font-medium">{capsule.addressTitle}</p>
-                <p className="text-neutral-400 font-mono text-[11px] pt-0.5">
-                  Address Line 2: <span className="text-white underline">{capsule.pataHandle}</span>
-                </p>
-              </div>
-
-              <button
-                onClick={() => {
-                  setCurrentStep(0);
-                  setDetectedBox(null);
-                  setActiveTab('driver');
-                }}
-                className="w-full py-2.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition"
-              >
-                <Navigation className="w-3.5 h-3.5" />
-                Open Route in HUD
-              </button>
-            </div>
-
-            {/* Impact Metric */}
-            <div className="p-3 bg-neutral-900/50 border border-neutral-800/80 rounded-xl flex items-center justify-between text-xs">
-              <span className="text-neutral-400">Driver Call Reduction</span>
-              <span className="font-semibold text-emerald-400">-72% calls</span>
-            </div>
-          </div>
-        )}
-
-      </main>
-
-      {/* SETTINGS & BYOK MODAL */}
-      {showSettings && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#141517] border border-neutral-800 rounded-2xl max-w-xs w-full p-4 space-y-3 shadow-2xl">
-            <div className="flex items-center justify-between pb-2 border-b border-neutral-800">
-              <div className="flex items-center space-x-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-semibold text-white">Gemini API & Mode</span>
-              </div>
-              <button onClick={() => setShowSettings(false)} className="text-neutral-400 hover:text-white text-xs">
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-2 text-xs">
-              {/* Mode Selection */}
-              <div 
-                onClick={() => handleSetMode('gemini')}
-                className={`p-2.5 rounded-lg border cursor-pointer transition ${
-                  appMode === 'gemini' ? 'border-emerald-500/50 bg-neutral-800/80 text-white' : 'border-neutral-800 bg-neutral-900 text-neutral-400'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="font-semibold flex items-center gap-1 text-emerald-300">
-                    <Zap className="w-3.5 h-3.5 text-emerald-400" />
-                    Live Gemini 3.5 Vision
-                  </span>
-                  <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded font-mono">
-                    Active
-                  </span>
-                </div>
-                <span className="text-[10px] text-neutral-400 block leading-tight">
-                  Multimodal vision inference on live camera feed. Uses embedded key.
-                </span>
-              </div>
-
-              <div 
-                onClick={() => handleSetMode('sim')}
-                className={`p-2.5 rounded-lg border cursor-pointer transition ${
-                  appMode === 'sim' ? 'border-neutral-500 bg-neutral-800 text-white' : 'border-neutral-800 bg-neutral-900 text-neutral-400'
-                }`}
-              >
-                <span className="font-semibold block mb-0.5">Instant Simulator Mode</span>
-                <span className="text-[10px] text-neutral-500 block leading-tight">
-                  Simulated verification for rapid demo testing without API calls.
-                </span>
-              </div>
-
-              {/* API Key BYOK */}
-              <div className="pt-1.5 border-t border-neutral-800/80">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[10px] text-neutral-400 font-medium">Gemini API Key</label>
-                  <span className="text-[9px] text-emerald-400 font-mono">
-                    {apiKey === EMBEDDED_API_KEY ? 'Pre-configured' : 'Custom BYOK'}
-                  </span>
-                </div>
-                <input
-                  type="password"
-                  placeholder="AQ.Ab8..."
-                  value={apiKey}
-                  onChange={e => {
-                    setApiKey(e.target.value);
-                    localStorage.setItem('patavision_gemini_key', e.target.value);
-                  }}
-                  className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-neutral-600 font-mono"
+        {/* TOP HEADER */}
+        <header className="bg-[#141415] shrink-0 z-40">
+          <div className="h-14 px-4 flex items-center justify-between border-b border-[#ededed]/[0.08]">
+            <div className="flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
+                <path
+                  d="M8 14s4.5-4.2 4.5-7.8a4.5 4.5 0 1 0-9 0C3.5 9.8 8 14 8 14Z"
+                  stroke="#eab308"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
                 />
-
-                <div className="flex gap-1.5 pt-2">
-                  <button
-                    onClick={handleTestApiKey}
-                    disabled={testingApi}
-                    className="flex-1 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg text-[10px] font-medium transition"
-                  >
-                    {testingApi ? 'Testing...' : 'Test Connection'}
-                  </button>
-                  {apiKey !== EMBEDDED_API_KEY && (
-                    <button
-                      onClick={() => {
-                        setApiKey(EMBEDDED_API_KEY);
-                        localStorage.removeItem('patavision_gemini_key');
-                        setTestApiStatus('Reset to embedded key');
-                      }}
-                      className="px-2 py-1.5 bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white rounded-lg text-[10px] transition"
-                    >
-                      Reset
-                    </button>
-                  )}
-                </div>
-
-                {testApiStatus && (
-                  <p className="text-[10px] pt-1.5 text-emerald-400 font-mono leading-tight">
-                    {testApiStatus}
-                  </p>
-                )}
-              </div>
+                <circle cx="8" cy="6.2" r="1.5" fill="#eab308" />
+              </svg>
+              <span className="text-[15px] font-medium text-[#ededed]">PataVision</span>
             </div>
 
-            <button
-              onClick={() => setShowSettings(false)}
-              className="w-full py-2 bg-white text-black font-semibold rounded-lg text-xs hover:bg-neutral-200 transition"
-            >
-              Done
-            </button>
+            <div className="flex items-center gap-2">
+              <a
+                href="/demo.html"
+                className={`h-8 px-2 rounded-[8px] text-xs text-[#a1a1a6] hover:text-[#ededed] hover:bg-[#19191b] flex items-center gap-1 transition-colors duration-150 ${FOCUS_RING}`}
+                title="Open demonstrative showcase"
+              >
+                <span>Showcase</span>
+                <ArrowRight className="w-4 h-4 shrink-0" strokeWidth={1.5} />
+              </a>
+              <button
+                onClick={() => setShowGuide(true)}
+                className={`w-9 h-9 rounded-[8px] text-[#a1a1a6] hover:text-[#ededed] hover:bg-[#19191b] flex items-center justify-center transition-colors duration-150 ${FOCUS_RING}`}
+                title="How PataVision works"
+                aria-label="How PataVision works"
+              >
+                <HelpCircle className="w-4 h-4 shrink-0" strokeWidth={1.5} />
+              </button>
+              <button
+                onClick={() => setShowSettings(true)}
+                className={`w-9 h-9 rounded-[8px] text-[#a1a1a6] hover:text-[#ededed] hover:bg-[#19191b] flex items-center justify-center transition-colors duration-150 ${FOCUS_RING}`}
+                title="Vision and API settings"
+                aria-label="Vision and API settings"
+              >
+                <Settings className="w-4 h-4 shrink-0" strokeWidth={1.5} />
+              </button>
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* FOOTER */}
-      <footer className="px-4 py-2 border-t border-neutral-800/80 text-[10px] text-neutral-600 flex justify-between">
-        <span>PataVision • Last-100m Engine</span>
-        <span>{capsule.addressTitle.split(',')[0]}</span>
-      </footer>
+          {/* Row 2: Vision | Sim (left) + HUD | Address (right) */}
+          <div className="px-4 py-2 border-b border-[#ededed]/[0.08] flex items-center justify-between gap-2 bg-[#141415]">
+            <div className="flex bg-[#19191b] p-1 rounded-[10px] border border-[#ededed]/[0.08]">
+              <button
+                onClick={() => handleSetMode('gemini')}
+                className={`h-8 px-2 rounded-[6px] text-xs font-medium flex items-center gap-2 transition-colors duration-150 ${FOCUS_RING} ${
+                  appMode === 'gemini'
+                    ? 'bg-[#232325] text-[#ededed] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+                    : 'text-[#a1a1a6] hover:text-[#ededed]'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${appMode === 'gemini' ? 'bg-[#eab308]' : 'bg-[#85858b]'}`} />
+                <span>Vision</span>
+              </button>
+              <button
+                onClick={() => handleSetMode('sim')}
+                className={`h-8 px-2 rounded-[6px] text-xs font-medium transition-colors duration-150 ${FOCUS_RING} ${
+                  appMode === 'sim'
+                    ? 'bg-[#232325] text-[#ededed] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+                    : 'text-[#a1a1a6] hover:text-[#ededed]'
+                }`}
+              >
+                Sim
+              </button>
+            </div>
+
+            <div className="flex bg-[#19191b] p-1 rounded-[10px] border border-[#ededed]/[0.08]">
+              {([
+                { id: 'driver', label: 'HUD' },
+                { id: 'resident', label: 'Address' }
+              ] as const).map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    if (tab.id === 'resident') setIsEditing(false);
+                  }}
+                  className={`h-8 px-3 rounded-[6px] text-xs font-medium transition-colors duration-150 ${FOCUS_RING} ${
+                    activeTab === tab.id
+                      ? 'bg-[#232325] text-[#ededed] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+                      : 'text-[#a1a1a6] hover:text-[#ededed]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
+
+        {/* MAIN VIEW CONTENT */}
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {activeTab === 'driver' && (
+            <DriverHud
+              videoRef={videoRef}
+              cameraActive={cameraActive}
+              onStartCamera={startCamera}
+              capsule={capsule}
+              activeWaypoint={activeWaypoint}
+              currentStep={currentStep}
+              isLastStep={isLastStep}
+              appMode={appMode}
+              autoTrack={autoTrack}
+              onToggleAutoTrack={() => setAutoTrack(p => !p)}
+              showArLayers={showArLayers}
+              onToggleArLayers={() => setShowArLayers(p => !p)}
+              speechLang={speechLang}
+              onToggleSpeechLang={() => setSpeechLang(p => (p === 'hi' ? 'en' : 'hi'))}
+              scanning={scanning}
+              detected={detected}
+              detectedBox={detectedBox}
+              statusMessage={statusMessage}
+              aiReasoning={aiReasoning}
+              isSpeaking={isSpeaking}
+              onSpeak={speak}
+              onScan={() => handleScan(false)}
+              onNextStep={nextStep}
+            />
+          )}
+
+          {activeTab === 'resident' && (
+            <AddressTab
+              capsule={capsule}
+              selectedPreset={selectedPreset}
+              isEditing={isEditing}
+              onToggleEdit={() => {
+                if (!isEditing) {
+                  setEditForm(capsule);
+                  setEditSlug(stripHandlePrefix(capsule.pataHandle));
+                  setEditPhone('');
+                }
+                setIsEditing(!isEditing);
+              }}
+              lookupQuery={lookupQuery}
+              onChangeLookupQuery={setLookupQuery}
+              onLookup={handleLookup}
+              lookupStatus={lookupStatus}
+              onApplyPreset={handleApplyPreset}
+              cloudActive={cloudActive}
+              cloudNotice={cloudNotice}
+              copied={copied}
+              onCopyLink={copyShareableLink}
+              speechLang={speechLang}
+              onSpeak={speak}
+              onTestRouteInHud={() => {
+                setCurrentStep(0);
+                setDetectedBox(null);
+                setActiveTab('driver');
+              }}
+              editForm={editForm}
+              onChangeEditForm={setEditForm}
+              editSlug={editSlug}
+              onChangeEditSlug={setEditSlug}
+              editPhone={editPhone}
+              onChangeEditPhone={setEditPhone}
+              editPhonePreviewHash={editPhonePreviewHash}
+              isRecordingWalkthrough={isRecordingWalkthrough}
+              recordingSeconds={recordingSeconds}
+              processingVideo={processingVideo}
+              videoExtractStatus={videoExtractStatus}
+              extractedFrames={extractedFrames}
+              analyzingStepIdx={analyzingStepIdx}
+              walkthroughVideoRef={walkthroughVideoRef}
+              videoUploadInputRef={videoUploadInputRef}
+              onStartWalkthroughRecording={handleStartWalkthroughRecording}
+              onStopWalkthroughRecording={handleStopWalkthroughRecording}
+              onVideoFileUpload={handleVideoFileUpload}
+              onStepPhotoCapture={handleStepPhotoCapture}
+              onAddWaypoint={handleAddWaypoint}
+              onUpdateWaypoint={handleUpdateWaypoint}
+              onDeleteWaypoint={handleDeleteWaypoint}
+              onResetToDefault={handleResetToDefault}
+              onSaveCustomCapsule={handleSaveCustomCapsule}
+            />
+          )}
+        </main>
+
+        {verificationOverlay && activeWaypoint && (
+          <VerificationOverlay
+            overlay={verificationOverlay}
+            capsule={capsule}
+            activeWaypoint={activeWaypoint}
+            currentStep={currentStep}
+            isLastStep={isLastStep}
+            onDismiss={dismissVerificationOverlay}
+            onNextStep={nextStep}
+            onRestartRoute={() => {
+              setCurrentStep(0);
+              setDetected(false);
+              setDetectedBox(null);
+            }}
+            onSpeak={speak}
+          />
+        )}
+
+        {showSettings && (
+          <SettingsModal
+            appMode={appMode}
+            apiKey={apiKey}
+            embeddedApiKey={EMBEDDED_API_KEY}
+            testApiStatus={testApiStatus}
+            testConnPhase={testConnPhase}
+            onSetMode={handleSetMode}
+            onChangeApiKey={val => {
+              setApiKey(val);
+              localStorage.setItem('patavision_gemini_key', val);
+            }}
+            onResetApiKey={() => {
+              setApiKey(EMBEDDED_API_KEY);
+              localStorage.removeItem('patavision_gemini_key');
+              setTestApiStatus('Reset to embedded key');
+            }}
+            onTestApiKey={handleTestApiKey}
+            onClose={() => {
+              clearTestTimers();
+              setTestConnPhase('idle');
+              setShowSettings(false);
+            }}
+          />
+        )}
+
+        {showGuide && (
+          <div
+            onClick={dismissGuide}
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-overlay-veil"
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-[380px] bg-[#141415] border border-[#ededed]/[0.1] rounded-[16px] p-5 space-y-4 animate-fade-rise"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-medium text-[#ededed]">How PataVision works</h2>
+                  <p className="text-xs text-[#a1a1a6] mt-0.5">
+                    One app for mapping your doorstep and guiding anyone there.
+                  </p>
+                </div>
+                <button
+                  onClick={dismissGuide}
+                  className={`w-8 h-8 rounded-[8px] text-[#a1a1a6] hover:text-[#ededed] hover:bg-[#19191b] flex items-center justify-center shrink-0 ${FOCUS_RING}`}
+                  aria-label="Close guide"
+                >
+                  <X className="w-4 h-4" strokeWidth={1.5} />
+                </button>
+              </div>
+
+              <div className="space-y-2.5 text-xs">
+                <div className="p-3 rounded-[10px] bg-[#19191b] border border-[#ededed]/[0.08] space-y-1.5">
+                  <div className="font-mono text-[11px] text-[#85858b] uppercase tracking-wider">Views</div>
+                  <p className="text-[#ededed]">
+                    <span className="font-medium text-[#eab308]">HUD</span> — Live camera navigation for delivery partners or friends visiting you.
+                  </p>
+                  <p className="text-[#ededed]">
+                    <span className="font-medium text-[#eab308]">Address</span> — Record a walkthrough or add photos to create &amp; copy your shareable <span className="font-mono text-[#a1a1a6]">/p/...</span> link.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-[10px] bg-[#19191b] border border-[#ededed]/[0.08] space-y-1.5">
+                  <div className="font-mono text-[11px] text-[#85858b] uppercase tracking-wider">Verification Modes</div>
+                  <p className="text-[#ededed]">
+                    <span className="font-medium text-[#4cc38a]">Vision (Live)</span> — Uses Gemini AI to match real camera frames against each landmark.
+                  </p>
+                  <p className="text-[#ededed]">
+                    <span className="font-medium text-[#a1a1a6]">Sim (Demo)</span> — Instant simulated verification without live AI calls.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={dismissGuide}
+                className={`w-full h-10 rounded-[10px] bg-[#ededed] hover:bg-white text-[#141415] text-xs font-medium transition-colors duration-150 ${FOCUS_RING}`}
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        )}
+
+        <footer className="h-10 px-4 border-t border-[#ededed]/[0.08] text-xs text-[#85858b] flex items-center justify-between shrink-0 tabular-nums">
+          <span>PataVision</span>
+          <span>{capsule.addressTitle.split(',')[0]}</span>
+        </footer>
+      </div>
     </div>
   );
 }
