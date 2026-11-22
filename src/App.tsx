@@ -24,7 +24,9 @@ import {
   Eye,
   ShieldCheck,
   Building,
-  Home
+  Home,
+  Crosshair,
+  RefreshCw
 } from 'lucide-react';
 
 export interface Waypoint {
@@ -43,6 +45,15 @@ export interface AddressCapsule {
   pataHandle: string;
   voiceNoteHindi: string;
   waypoints: Waypoint[];
+}
+
+export interface DetectedBoundingBox {
+  ymin: number;
+  xmin: number;
+  ymax: number;
+  xmax: number;
+  label: string;
+  confidence: string;
 }
 
 // Embedded Default Key (Masked in UI, instantly functional for judges & users)
@@ -177,13 +188,13 @@ export default function App() {
   const [speechLang, setSpeechLang] = useState<'hi' | 'en'>('hi');
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // AR Overlay Toggle
+  // AR Overlay Toggle & Live Auto-Track Loop
   const [showArLayers, setShowArLayers] = useState(true);
+  const [autoTrack, setAutoTrack] = useState<boolean>(false);
 
   // Active Capsule State (Loaded from Hash or LocalStorage or Default)
   const [selectedPreset, setSelectedPreset] = useState<string>('gali');
   const [capsule, setCapsule] = useState<AddressCapsule>(() => {
-    // Check URL Hash first (for shared links!)
     if (window.location.hash.startsWith('#capsule=')) {
       try {
         const encoded = window.location.hash.replace('#capsule=', '');
@@ -193,7 +204,6 @@ export default function App() {
         console.warn('Failed to parse URL capsule hash:', e);
       }
     }
-    // Check LocalStorage
     const saved = localStorage.getItem('patavision_saved_capsule');
     if (saved) {
       try { return JSON.parse(saved); } catch {}
@@ -209,14 +219,20 @@ export default function App() {
   const [currentStep, setCurrentStep] = useState(0);
   const [copied, setCopied] = useState(false);
 
-  // Camera & Detection
+  // Camera, Dynamic Bounding Boxes & Detection
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [detected, setDetected] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('Align landmark within AR reticle');
+  const [detectedBox, setDetectedBox] = useState<DetectedBoundingBox | null>(null);
+  const [statusMessage, setStatusMessage] = useState('Aim camera at path to identify landmark');
   const [aiReasoning, setAiReasoning] = useState<string | null>(null);
+
+  // Concurrency lock for Auto-Track
+  const isScanningRef = useRef<boolean>(false);
+  const autoTrackRef = useRef<boolean>(autoTrack);
+  autoTrackRef.current = autoTrack;
 
   // Start Camera
   const startCamera = async () => {
@@ -261,12 +277,13 @@ export default function App() {
 
   const activeWaypoint = capsule.waypoints[currentStep] || capsule.waypoints[0];
 
-  // Play audio on step change
+  // Play audio on step change and reset dynamic boxes
   useEffect(() => {
     if (activeTab === 'driver' && activeWaypoint) {
       const prompt = `${activeWaypoint.title}. ${activeWaypoint.cue}`;
       speak(prompt);
       setDetected(false);
+      setDetectedBox(null);
       setAiReasoning(null);
       setStatusMessage(`Looking for ${activeWaypoint.title}`);
     }
@@ -304,12 +321,13 @@ export default function App() {
   };
 
   // Scan action (Real Gemini Vision OR Fast Simulator)
-  const handleScan = async () => {
-    if (!activeWaypoint) return;
+  const handleScan = async (isAuto = false) => {
+    if (!activeWaypoint || isScanningRef.current) return;
+    isScanningRef.current = true;
     setScanning(true);
-    setAiReasoning(null);
+    if (!isAuto) setAiReasoning(null);
 
-    // MODE 1: LIVE GEMINI MULTIMODAL INFERENCE
+    // MODE 1: LIVE GEMINI MULTIMODAL INFERENCE WITH DYNAMIC BOUNDING BOXES
     if (appMode === 'gemini') {
       setStatusMessage('⚡ Gemini AI analyzing camera frame...');
       
@@ -332,22 +350,32 @@ export default function App() {
         let successResult: any = null;
 
         const systemPrompt = `You are PataVision AR, an unmapped last-100m spatial navigation assistant for Indian doorsteps.
-You are evaluating a live camera snapshot from a delivery partner or visitor trying to find the waypoint: "${activeWaypoint.title}".
-Waypoint target description: "${activeWaypoint.targetObject}".
-Path guidance: "${activeWaypoint.cue}".
+Target landmark to locate: "${activeWaypoint.title}" (${activeWaypoint.targetObject}).
+Guidance cue: "${activeWaypoint.cue}".
 Destination: "${capsule.addressTitle}".
 
-Task: Analyze the camera snapshot.
-1. Check if the target landmark (${activeWaypoint.targetObject}) or matching visual cue (e.g. stairs, specific gate, door, transformer, shop sign, corridor, pathway) is visible in the frame.
-2. If visible or if the scene is consistent with following this path, set "found": true.
-3. If not yet clearly visible (e.g. facing blank wall, dark, or completely different direction), set "found": false.
-4. Provide a 1-sentence concise observation ("reasoning") that sounds natural and helpful.
-5. Provide a 1-sentence tactical action ("guidance").
+Task:
+Analyze the camera snapshot.
+1. Check if the target landmark (${activeWaypoint.targetObject}) or matching physical structure/corridor/gate/signboard is visible in the frame.
+2. If found:
+   - "found": true
+   - "label": short 2-3 word name of the detected object
+   - "box_2d": [ymin, xmin, ymax, xmax] as integers normalized between 0 and 1000 representing the exact bounding box around the object in the frame.
+   - "reasoning": 1-sentence concise observation of what is spotted.
+   - "guidance": 1-sentence tactical action for the user.
+3. If NOT found:
+   - "found": false
+   - "label": null
+   - "box_2d": null
+   - "reasoning": short note of what is visible instead.
+   - "guidance": where the user should turn or point camera.
 
 Output strictly valid JSON with no markdown wrapping:
 {
   "found": boolean,
   "confidence": "high" | "medium" | "low",
+  "label": string | null,
+  "box_2d": [number, number, number, number] | null,
   "reasoning": string,
   "guidance": string
 }`;
@@ -387,19 +415,33 @@ Output strictly valid JSON with no markdown wrapping:
 
         if (successResult) {
           setScanning(false);
+          isScanningRef.current = false;
           setAiReasoning(successResult.reasoning);
 
           if (successResult.found) {
             setDetected(true);
-            setStatusMessage(`Target Verified: ${activeWaypoint.title}`);
+            if (successResult.box_2d && Array.isArray(successResult.box_2d) && successResult.box_2d.length === 4) {
+              setDetectedBox({
+                ymin: successResult.box_2d[0],
+                xmin: successResult.box_2d[1],
+                ymax: successResult.box_2d[2],
+                xmax: successResult.box_2d[3],
+                label: successResult.label || activeWaypoint.title,
+                confidence: successResult.confidence || 'high'
+              });
+            }
+            setStatusMessage(`Target Locked: ${activeWaypoint.title}`);
             const feedbackText = speechLang === 'hi' 
               ? `रास्ता मिल गया। ${successResult.guidance}` 
               : `Target locked. ${successResult.guidance}`;
             speak(feedbackText);
           } else {
             setDetected(false);
+            setDetectedBox(null);
             setStatusMessage(successResult.guidance || 'Adjust angle towards landmark');
-            speak(speechLang === 'hi' ? 'दिशानिर्देश के अनुसार कैमरा घुमाएं' : 'Pan camera towards the landmark');
+            if (!isAuto) {
+              speak(speechLang === 'hi' ? 'दिशानिर्देश के अनुसार कैमरा घुमाएं' : 'Pan camera towards the landmark');
+            }
           }
           return;
         }
@@ -407,19 +449,45 @@ Output strictly valid JSON with no markdown wrapping:
     }
 
     // MODE 2: SIMULATOR MODE (OR INSTANT FALLBACK)
-    setStatusMessage('Simulating verification...');
+    setStatusMessage('Simulating verification & bounding box...');
     setTimeout(() => {
       setScanning(false);
+      isScanningRef.current = false;
       setDetected(true);
-      setAiReasoning('Simulated visual match confirmed within AR reticle');
+      // Simulate dynamic object bounding box around the preset landmark coordinate
+      const topNum = parseInt(activeWaypoint.screenPosition.top) * 10 || 350;
+      const leftNum = parseInt(activeWaypoint.screenPosition.left) * 10 || 500;
+      setDetectedBox({
+        ymin: Math.max(50, topNum - 80),
+        xmin: Math.max(50, leftNum - 100),
+        ymax: Math.min(950, topNum + 100),
+        xmax: Math.min(950, leftNum + 100),
+        label: activeWaypoint.title,
+        confidence: 'high'
+      });
+      setAiReasoning('Simulated visual match: landmark dynamically bounded on feed');
       setStatusMessage(`Verified: ${activeWaypoint.title}`);
       speak(speechLang === 'hi' ? 'रास्ता मिल गया। आगे बढ़ें।' : 'Target locked. Follow the path.');
-    }, 700);
+    }, 650);
   };
+
+  // Continuous Auto-Track Loop (grabs frames every 2.8s)
+  useEffect(() => {
+    if (!autoTrack || activeTab !== 'driver' || !cameraActive) return;
+
+    const timer = setInterval(() => {
+      if (!isScanningRef.current && autoTrackRef.current) {
+        handleScan(true);
+      }
+    }, 2800);
+
+    return () => clearInterval(timer);
+  }, [autoTrack, activeTab, cameraActive, currentStep, capsule, appMode, apiKey]);
 
   const nextStep = () => {
     if (currentStep < capsule.waypoints.length - 1) {
       setCurrentStep(prev => prev + 1);
+      setDetectedBox(null);
     }
   };
 
@@ -443,6 +511,7 @@ Output strictly valid JSON with no markdown wrapping:
       localStorage.setItem('patavision_saved_capsule', JSON.stringify(p));
       window.location.hash = '';
       setCurrentStep(0);
+      setDetectedBox(null);
     }
   };
 
@@ -458,6 +527,7 @@ Output strictly valid JSON with no markdown wrapping:
     
     setIsEditing(false);
     setCurrentStep(0);
+    setDetectedBox(null);
     setActiveTab('driver'); // jump to driver view to test immediately!
   };
 
@@ -470,6 +540,7 @@ Output strictly valid JSON with no markdown wrapping:
     setSelectedPreset('gali');
     setIsEditing(false);
     setCurrentStep(0);
+    setDetectedBox(null);
   };
 
   // Waypoint editor helpers
@@ -516,7 +587,7 @@ Output strictly valid JSON with no markdown wrapping:
           <div className="flex items-center space-x-2">
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="text-xs font-bold tracking-tight text-white">PataVision</span>
-            <span className="text-[10px] text-neutral-500 font-mono">v1.2</span>
+            <span className="text-[10px] text-neutral-500 font-mono">v1.3</span>
           </div>
 
           {/* Minimal Segment Switcher */}
@@ -625,8 +696,21 @@ Output strictly valid JSON with no markdown wrapping:
                 </span>
               </div>
 
-              {/* AR Layers Toggle & Language Pill */}
+              {/* Continuous Auto-Track Toggle & Language Pill */}
               <div className="flex items-center space-x-1.5 pointer-events-auto">
+                <button
+                  onClick={() => setAutoTrack(prev => !prev)}
+                  className={`bg-black/70 backdrop-blur-md border px-2 py-1 rounded-full text-[10px] font-medium flex items-center gap-1 transition ${
+                    autoTrack 
+                      ? 'border-emerald-400/80 bg-emerald-500/20 text-emerald-300 font-semibold animate-pulse' 
+                      : 'border-neutral-800 text-neutral-400 hover:text-white'
+                  }`}
+                  title="Toggle continuous live video analysis"
+                >
+                  <RefreshCw className={`w-3 h-3 ${autoTrack ? 'animate-spin text-emerald-400' : ''}`} />
+                  {autoTrack ? 'Live Auto: ON' : 'Live Auto: OFF'}
+                </button>
+
                 <button
                   onClick={() => setShowArLayers(prev => !prev)}
                   className={`bg-black/70 backdrop-blur-md border px-2 py-1 rounded-full text-[10px] font-medium flex items-center gap-1 transition ${
@@ -635,7 +719,7 @@ Output strictly valid JSON with no markdown wrapping:
                   title="Toggle AR Overlay"
                 >
                   <Layers className="w-3 h-3" />
-                  {showArLayers ? 'AR On' : 'AR Off'}
+                  {showArLayers ? 'AR' : 'Off'}
                 </button>
 
                 <button
@@ -741,23 +825,62 @@ Output strictly valid JSON with no markdown wrapping:
                     </svg>
                   </div>
 
-                  {/* CUE 3: CENTRAL AR RETICLE BRACKETS */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className={`w-44 h-44 rounded-2xl transition-all duration-300 border ${
-                      detected 
-                        ? 'border-emerald-400 bg-emerald-500/10 scale-105' 
-                        : scanning 
-                        ? 'border-amber-400/60 animate-pulse' 
-                        : 'border-white/20'
-                    }`}>
-                      {detected && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-emerald-500 text-black text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-lg">
-                          <Check className="w-2.5 h-2.5 stroke-[3]" />
-                          Target Confirmed
-                        </div>
-                      )}
+                  {/* ========================================================
+                      CUE 3: REAL-TIME DYNAMIC AR BOUNDING BOX
+                      (Calculated directly from Gemini box_2d object detection)
+                     ======================================================== */}
+                  {detectedBox ? (
+                    <div 
+                      className="absolute transition-all duration-500 pointer-events-none z-25 flex flex-col justify-between p-1 rounded-xl shadow-[0_0_25px_rgba(16,185,129,0.5)] border-2 border-emerald-400 bg-emerald-400/15 animate-fade-in"
+                      style={{
+                        top: `${Math.min(75, Math.max(5, detectedBox.ymin / 10))}%`,
+                        left: `${Math.min(75, Math.max(5, detectedBox.xmin / 10))}%`,
+                        height: `${Math.min(70, Math.max(14, (detectedBox.ymax - detectedBox.ymin) / 10))}%`,
+                        width: `${Math.min(80, Math.max(18, (detectedBox.xmax - detectedBox.xmin) / 10))}%`,
+                      }}
+                    >
+                      {/* Floating HUD Target Tag */}
+                      <div className="self-start -mt-6 bg-emerald-500 text-black text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-lg">
+                        <Check className="w-2.5 h-2.5 stroke-[3]" />
+                        <span>{detectedBox.label}</span>
+                        <span className="text-[8px] bg-black/30 text-white px-1 rounded font-mono font-normal">
+                          {detectedBox.confidence}
+                        </span>
+                      </div>
+
+                      {/* Precision Crosshair Corner Brackets */}
+                      <div className="flex justify-between w-full">
+                        <div className="w-2.5 h-2.5 border-t-2 border-l-2 border-emerald-300" />
+                        <div className="w-2.5 h-2.5 border-t-2 border-r-2 border-emerald-300" />
+                      </div>
+
+                      {/* Center Dynamic Crosshair */}
+                      <div className="self-center flex items-center justify-center">
+                        <div className="w-2 h-2 rounded-full bg-emerald-400/70 animate-ping" />
+                      </div>
+
+                      <div className="flex justify-between w-full">
+                        <div className="w-2.5 h-2.5 border-b-2 border-l-2 border-emerald-300" />
+                        <div className="w-2.5 h-2.5 border-b-2 border-r-2 border-emerald-300" />
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    /* Default Central Aiming Reticle (Active while searching) */
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className={`w-44 h-44 rounded-2xl transition-all duration-300 border ${
+                        scanning 
+                          ? 'border-amber-400/60 bg-amber-400/5 animate-pulse' 
+                          : 'border-white/20'
+                      }`}>
+                        {scanning && (
+                          <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent animate-pulse" />
+                        )}
+                        <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[9px] font-mono text-neutral-400 whitespace-nowrap bg-black/60 px-2 py-0.5 rounded-full border border-neutral-800">
+                          {scanning ? 'Detecting objects in feed...' : 'Aim reticle at landmark'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                 </div>
               )}
@@ -792,6 +915,11 @@ Output strictly valid JSON with no markdown wrapping:
                         Gemini 3.5 Active
                       </span>
                     )}
+                    {autoTrack && (
+                      <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded font-mono font-bold animate-pulse">
+                        LIVE
+                      </span>
+                    )}
                   </div>
                   <h2 className="text-base font-semibold text-white tracking-tight mt-0.5">
                     {activeWaypoint?.title}
@@ -817,7 +945,7 @@ Output strictly valid JSON with no markdown wrapping:
               {/* Action Controls */}
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
-                  onClick={handleScan}
+                  onClick={() => handleScan(false)}
                   disabled={scanning}
                   className="py-2.5 px-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-medium text-neutral-200 flex items-center justify-center gap-1.5 transition active:scale-[0.98] disabled:opacity-50 pointer-events-auto"
                 >
@@ -826,7 +954,7 @@ Output strictly valid JSON with no markdown wrapping:
                   ) : (
                     <Camera className="w-3.5 h-3.5 text-neutral-400" />
                   )}
-                  {scanning ? 'Verifying...' : appMode === 'gemini' ? 'Verify with Gemini' : 'Verify Landmark'}
+                  {scanning ? 'Detecting...' : appMode === 'gemini' ? 'Lock Landmark' : 'Verify Landmark'}
                 </button>
 
                 <button
@@ -834,7 +962,7 @@ Output strictly valid JSON with no markdown wrapping:
                   disabled={currentStep >= capsule.waypoints.length - 1}
                   className={`py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-[0.98] pointer-events-auto ${
                     detected 
-                      ? 'bg-white text-black hover:bg-neutral-200' 
+                      ? 'bg-white text-black hover:bg-neutral-200 shadow-md' 
                       : 'bg-neutral-900 text-neutral-400 border border-neutral-800'
                   }`}
                 >
@@ -1169,6 +1297,7 @@ Output strictly valid JSON with no markdown wrapping:
                 <button
                   onClick={() => {
                     setCurrentStep(0);
+                    setDetectedBox(null);
                     setActiveTab('driver');
                   }}
                   className="w-full py-2.5 rounded-xl bg-white text-black font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-neutral-200 transition"
@@ -1210,6 +1339,7 @@ Output strictly valid JSON with no markdown wrapping:
               <button
                 onClick={() => {
                   setCurrentStep(0);
+                  setDetectedBox(null);
                   setActiveTab('driver');
                 }}
                 className="w-full py-2.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition"
